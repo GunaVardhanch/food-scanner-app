@@ -475,18 +475,28 @@ export default function Home() {
     low_sodium: false,
     gluten_free: false
   });
+  const [mounted, setMounted] = useState(false);
 
-  // Init Worker
+  // Prevention of Hydration Errors
   useEffect(() => {
-    workerRef.current = new Worker(new URL('../utils/ocrWorker.js', import.meta.url), { type: 'module' });
-    workerRef.current.onmessage = (e) => {
-      if (e.data.type === 'INFERENCE_RESULT') {
-        setEdgeOcrText(e.data.text);
-      }
-    };
-    workerRef.current.postMessage({ type: 'LOAD' });
-    return () => workerRef.current.terminate();
+    setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    try {
+      workerRef.current = new Worker(new URL('../utils/ocrWorker.js', import.meta.url), { type: 'module' });
+      workerRef.current.onmessage = (e) => {
+        if (e.data.type === 'INFERENCE_RESULT') {
+          setEdgeOcrText(e.data.text);
+        }
+      };
+      workerRef.current.postMessage({ type: 'LOAD' });
+    } catch (err) {
+      console.error("Worker init failed:", err);
+    }
+    return () => workerRef.current?.terminate();
+  }, [mounted]);
 
   // Frame Capture Loop
   useEffect(() => {
@@ -542,11 +552,12 @@ export default function Home() {
   }, [activeTab]);
 
   useEffect(() => {
+    if (!mounted) return;
     fetch(`${API_BASE_URL}/preferences`)
-      .then(res => res.json())
-      .then(data => setPreferences(data))
+      .then(res => res.ok ? res.json() : Promise.reject())
+      .then(data => { if (data) setPreferences(prev => ({ ...prev, ...data })); })
       .catch(err => console.error("Pref fetch error:", err));
-  }, []);
+  }, [mounted]);
 
   const updatePreferences = (newPrefs) => {
     setPreferences(newPrefs);
