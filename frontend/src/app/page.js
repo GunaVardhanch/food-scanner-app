@@ -4,7 +4,9 @@ import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 
-const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+const API_BASE_URL = typeof process.env.NEXT_PUBLIC_API_URL === 'string'
+  ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '')
+  : 'http://localhost:8000';
 
 // --- ICONS ---
 const UserIcon = () => (
