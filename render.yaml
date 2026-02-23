@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: food-scanner-backend
+    env: docker
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    plan: free # WARNING: ML tools (PyTorch, EasyOCR) may require an upgraded RAM plan
+    envVars:
+      - key: PORT
+        value: "8000"
