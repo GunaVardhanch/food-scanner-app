@@ -40,9 +40,7 @@ ner_service = NERService()
 xai_service = XAIService()
 
 # Mount frontend static files
-# Note: In Docker, we'll copy the 'out' folder to /app/static
-if os.path.exists("static"):
-    app.mount("/", StaticFiles(directory="static", html=True), name="static")
+# Moved to end to avoid hijacking API routes
 
 
 class AnalyzeRequest(BaseModel):
@@ -127,6 +125,11 @@ async def analyze(request: AnalyzeRequest):
 def search(q: str):
     logger.info(f"Searching for: {q}")
     return {"products": [{"name": f"Mock result for {q}", "health_score": "YELLOW"}]}
+
+# Mount frontend static files
+# Order matters: mount this LAST so /analyze, /search etc. take precedence
+if os.path.exists("static"):
+    app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 if __name__ == "__main__":
     # Railway sets the PORT environmental variable
