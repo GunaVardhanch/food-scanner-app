@@ -667,6 +667,14 @@ export default function Home() {
     GREEN: { bg: 'bg-gradient-to-br from-emerald-400 to-green-600', label: 'HEALTHY', emoji: '✅', shadow: 'shadow-green-200', badge: 'bg-green-100 text-green-800' },
   };
 
+  if (!mounted) {
+    return (
+      <div className="bg-slate-100 min-h-screen flex items-center justify-center">
+        <div className="w-10 h-10 border-4 border-[#3a3f85] border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-slate-100 min-h-screen">
       <div className="max-wrapper overflow-x-hidden">
