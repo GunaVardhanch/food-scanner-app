@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import logging
 import uvicorn
+from fastapi.staticfiles import StaticFiles
 
 from ocr_pipeline import AdvancedOCRPipeline
 from health_scoring import HealthScoreEnsemble
@@ -37,6 +38,12 @@ scoring_engine = HealthScoreEnsemble()
 additives_expert = AdditivesExpert()
 ner_service = NERService()
 xai_service = XAIService()
+
+# Mount frontend static files
+# Note: In Docker, we'll copy the 'out' folder to /app/static
+if os.path.exists("static"):
+    app.mount("/", StaticFiles(directory="static", html=True), name="static")
+
 
 class AnalyzeRequest(BaseModel):
     ingredients_image: Optional[str] = None
