@@ -51,6 +51,10 @@ class AnalyzeRequest(BaseModel):
 def read_root():
     return {"message": "Food Scanner API is running!"}
 
+@app.get("/api/health")
+def read_root():
+    return {"message": "Food Scanner API is running!"}
+
 @app.post("/analyze")
 async def analyze(request: AnalyzeRequest):
     logger.info("Starting real-time analysis pipeline...")
