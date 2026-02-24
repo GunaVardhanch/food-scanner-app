@@ -6,7 +6,7 @@ import '../i18n';
 
 const API_BASE_URL = typeof process.env.NEXT_PUBLIC_API_URL === 'string'
   ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '')
-  : 'http://localhost:8000';
+  : 'http://localhost:7860';
 
 // --- ICONS ---
 const UserIcon = () => (
@@ -287,7 +287,14 @@ const HistoryFeed = () => {
   useEffect(() => {
     fetch(`${API_BASE_URL}/history`)
       .then(res => res.json())
-      .then(data => { setHistory(data); setLoading(false); })
+      .then(data => {
+        if (Array.isArray(data)) {
+          setHistory(data);
+        } else {
+          setHistory([]);
+        }
+        setLoading(false);
+      })
       .catch(() => setLoading(false));
   }, []);
 

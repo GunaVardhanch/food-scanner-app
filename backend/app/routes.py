@@ -1,36 +1,20 @@
 import base64
 import os
-import sys
 import uuid
-from typing import Dict, Any, List, Optional
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 import logging
-import uvicorn
-from fastapi.staticfiles import StaticFiles
+from flask import Blueprint, request, jsonify, send_from_directory
 
-from ocr_pipeline import AdvancedOCRPipeline
-from health_scoring import HealthScoreEnsemble
-from additives_expert import AdditivesExpert
-from ner_service import NERService
-from xai_service import XAIService
-
+from app.services.ocr_pipeline import AdvancedOCRPipeline
+from app.services.health_scoring import HealthScoreEnsemble
+from app.services.additives_expert import AdditivesExpert
+from app.services.ner_service import NERService
+from app.services.xai_service import XAIService
 
 # Setup basic logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="NutriScanner API")
-
-# Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+bp = Blueprint('api', __name__)
 
 # Initialize Services
 ocr_pipeline = AdvancedOCRPipeline()
@@ -39,35 +23,27 @@ additives_expert = AdditivesExpert()
 ner_service = NERService()
 xai_service = XAIService()
 
-# Mount frontend static files
-# Moved to end to avoid hijacking API routes
-
-
-class AnalyzeRequest(BaseModel):
-    ingredients_image: Optional[str] = None
-    nutrition_image: Optional[str] = None
-
-@app.get("/")
+@bp.route("/", methods=["GET"])
+@bp.route("/api/health", methods=["GET"])
 def read_root():
-    return {"message": "Food Scanner API is running!"}
+    return jsonify({"message": "Food Scanner API is running!"})
 
-@app.get("/api/health")
-def read_root():
-    return {"message": "Food Scanner API is running!"}
-
-@app.post("/analyze")
-async def analyze(request: AnalyzeRequest):
+@bp.route("/analyze", methods=["POST"])
+def analyze():
     logger.info("Starting real-time analysis pipeline...")
     
-    if not request.ingredients_image:
-        raise HTTPException(status_code=400, detail="Ingredients image is required")
+    data = request.get_json()
+    if not data or not data.get('ingredients_image'):
+        return jsonify({"error": "Ingredients image is required"}), 400
 
     # 1. Save base64 to temp file
     temp_id = str(uuid.uuid4())
     img_path = f"target_{temp_id}.jpg"
     
     try:
-        header, encoded = request.ingredients_image.split(",", 1)
+        ingredients_image_b64 = data.get('ingredients_image')
+        header, encoded = ingredients_image_b64.split(",", 1) if ',' in ingredients_image_b64 else ("", ingredients_image_b64)
+        
         with open(img_path, "wb") as f:
             f.write(base64.b64decode(encoded))
         
@@ -115,28 +91,52 @@ async def analyze(request: AnalyzeRequest):
             "healthy_alternative": "Fresh fruits or homemade organic snacks." if health_score < 6 else None
         }
         
-        return response
+        return jsonify(response)
 
     except Exception as e:
         logger.error(f"Pipeline error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return jsonify({"error": str(e)}), 500
     finally:
         if os.path.exists(img_path):
             os.remove(img_path)
 
-
-@app.get("/search")
-def search(q: str):
+@bp.route("/search", methods=["GET"])
+def search():
+    q = request.args.get('q', '')
     logger.info(f"Searching for: {q}")
-    return {"products": [{"name": f"Mock result for {q}", "health_score": "YELLOW"}]}
+    return jsonify({"products": [{"name": f"Mock result for {q}", "health_score": "YELLOW"}]})
 
-# Mount frontend static files
-# Order matters: mount this LAST so /analyze, /search etc. take precedence
-if os.path.exists("static"):
-    app.mount("/", StaticFiles(directory="static", html=True), name="static")
+@bp.route("/history", methods=["GET"])
+def history():
+    return jsonify([
+        {"product_name": "Sample Label Scan", "timestamp": "Just now", "health_score": "YELLOW", "score_value": 5.4}
+    ])
 
-if __name__ == "__main__":
-    # Railway sets the PORT environmental variable
-    port = int(os.environ.get("PORT", 7860))
-    logger.info(f"Starting server on port {port}")
-    uvicorn.run("main:app", host="0.0.0.0", port=port)
+@bp.route("/analytics", methods=["GET"])
+def analytics():
+    return jsonify({
+        "avg_score": 7.2,
+        "history_trend": [4, 5, 5, 6, 8, 7, 9],
+        "top_additives": [
+            {"name": "INS 102", "count": 12},
+            {"name": "MSG", "count": 8}
+        ]
+    })
+
+@bp.route("/preferences", methods=["GET", "POST"])
+def preferences():
+    if request.method == "POST":
+        return jsonify({"status": "updated"})
+    return jsonify({
+        "vegan": False,
+        "no_sugar": False,
+        "low_sodium": False,
+        "gluten_free": False
+    })
+
+# Optional: Serve static files if they exist
+@bp.route("/<path:path>")
+def static_proxy(path):
+    if os.path.exists(os.path.join("static", path)):
+        return send_from_directory("static", path)
+    return jsonify({"error": "File not found"}), 404

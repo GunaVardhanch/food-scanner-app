@@ -37,5 +37,5 @@ RUN python -c "import easyocr; reader = easyocr.Reader(['en', 'hi', 'mr'], model
 # Hugging Face Spaces default port is 7860
 EXPOSE 7860
 
-# Start the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
+# Start the application using Gunicorn
+CMD ["gunicorn", "-w", "1", "-b", "0.0.0.0:7860", "--timeout", "120", "run:app"]
