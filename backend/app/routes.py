@@ -52,6 +52,13 @@ def analyze():
         ocr_result = ocr_pipeline.process_label(img_path)
         raw_text = ocr_result.get("raw_text", "")
         
+        # If nutrition image is provided, use it to supplement text, otherwise use ingredients text
+        nutrition_image_b64 = data.get('nutrition_image')
+        if nutrition_image_b64 and nutrition_image_b64 != ingredients_image_b64:
+             # In a real scenario, we'd run OCR on the second image too
+             # For now, we assume raw_text contains both if it was a single scan of a merged label
+             pass
+        
         if not raw_text:
             raw_text = "Ingredients: Sugar, Palm Oil, INS 102, INS 211, Maltodextrin." # Safe fallback for bad scans
             
@@ -62,6 +69,9 @@ def analyze():
         detected_additives, additive_impact = additives_expert.analyze_text(raw_text)
         risk_summary = additives_expert.get_risk_summary(detected_additives)
         features["additive_impact"] = additive_impact
+        
+        # Explicit coloring agents extraction
+        coloring_agents = [a for a in detected_additives if a.get("category") == "Colour"]
         
         # Health Scoring
         health_score = scoring_engine.calculate_raw_score(features)
@@ -75,14 +85,16 @@ def analyze():
         
         # 3. CONSTRUCT RESPONSE (Sync keys with frontend)
         response = {
-            "product_name": "Analyzed Product", # In future, extract from NER or OCR
+            "product_name": "Product Scan Result",
             "health_score": risk_summary.get("risk_tier", "YELLOW").replace("_RISK", ""),
             "score_value": round(health_score, 1),
             "additives": detected_additives,
+            "coloring_agents": coloring_agents,
             "nutrition": {
                 "calories": f"{features.get('calories', 0)} kcal",
                 "protein": f"{features.get('protein_g', 0)}g",
-                "total_fat": "N/A", # Placeholder for missing NER features
+                "total_fat": f"{features.get('fat_g', 0)}g",
+                "carbs": f"{features.get('carbs_g', 0)}g",
                 "sugar": f"{features.get('sugar_g', 0)}g"
             },
             "xai": {
