@@ -181,8 +181,7 @@ const ScoreReveal = ({ result, onDone }) => {
       {phase === 'score' && (
         <div className="flex flex-col items-center animate-reveal-pop">
           <p className="text-[#6c63ff] font-black tracking-widest uppercase text-[10px] mb-8 animate-pulse text-center">Final Consensus Reached</p>
-          <div className={`w-64 h-64 rounded-full bg-gradient-to-br ${cfg.color} ${cfg.glow} flex flex-col items-center justify-center
-            reveal-animation transition-all duration-700 relative z-10 border-8 border-white/20 shadow-2xl`}>
+          <div className={`w-64 h-64 rounded-full bg-gradient-to-br ${cfg.color} ${cfg.glow} flex flex-col items-center justify-center reveal-animation transition-all duration-700 relative z-10 border-8 border-white/20 shadow-2xl`}>
             <span className="text-9xl font-black text-white drop-shadow-2xl">{displayNum}</span>
             <span className="text-white/70 text-[10px] font-black tracking-widest uppercase mt-1">Health Score</span>
           </div>
@@ -274,7 +273,6 @@ const XAIExplanation = ({ xaiData, imageUrl }) => {
                 </span>
               </div>
               <div className="w-full h-2 bg-slate-800/50 rounded-full overflow-hidden flex">
-                {/* Zero point centered logic */}
                 <div className="flex-1 flex justify-end">
                   {impact < 0 && (
                     <div
@@ -298,7 +296,7 @@ const XAIExplanation = ({ xaiData, imageUrl }) => {
         </div>
       </div>
 
-      {/* GRAD-CAM TOGGLE (Visualizing where the model looked) */}
+      {/* GRAD-CAM TOGGLE */}
       <div className="relative z-10">
         <button
           onClick={() => setShowHeatmap(!showHeatmap)}
@@ -562,7 +560,6 @@ export default function Home() {
   });
   const [mounted, setMounted] = useState(false);
 
-  // Prevention of Hydration Errors
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -583,7 +580,6 @@ export default function Home() {
     return () => workerRef.current?.terminate();
   }, [mounted]);
 
-  // Frame Capture Loop
   useEffect(() => {
     if (activeTab !== 'scanner' || capturedImage) return;
 
@@ -592,19 +588,16 @@ export default function Home() {
         const video = videoRef.current;
         const canvas = canvasRef.current;
         const ctx = canvas.getContext('2d');
-
-        // Use small size for faster edge processing
         canvas.width = 224;
         canvas.height = 224;
         ctx.drawImage(video, 0, 0, 224, 224);
-
         const imageData = ctx.getImageData(0, 0, 224, 224);
         workerRef.current.postMessage({
           type: 'INFER',
-          imageData: imageData.data.buffer // Send as transferable if possible
+          imageData: imageData.data.buffer
         }, [imageData.data.buffer]);
       }
-    }, 500); // Process every 500ms
+    }, 500);
 
     return () => clearInterval(interval);
   }, [activeTab, capturedImage]);
@@ -683,7 +676,7 @@ export default function Home() {
       }
     }
     return () => { if (stream) stream.getTracks().forEach(t => t.stop()); };
-  }, [activeTab, capturedImage, nutritionImage, scanStep]);
+  }, [activeTab, capturedImage]);
 
   const takePhoto = () => {
     if (videoRef.current && canvasRef.current) {
@@ -693,9 +686,7 @@ export default function Home() {
       canvas.height = video.videoHeight || 300;
       canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
       const dataUrl = canvas.toDataURL('image/jpeg');
-
       setCapturedImage(dataUrl);
-
       const stream = video.srcObject;
       if (stream) stream.getTracks().forEach(t => t.stop());
     }
@@ -705,7 +696,6 @@ export default function Home() {
     setCapturedImage(null);
     setAnalysisResult(null);
   };
-
 
   const handleAnalyzeClick = async () => {
     if (!capturedImage) return;
@@ -752,8 +742,8 @@ export default function Home() {
   }
 
   return (
-    <div className="bg-slate-100 min-h-screen">
-      <div className="max-wrapper overflow-x-hidden">
+    <div className="bg-slate-100 min-h-screen overflow-x-hidden">
+      <div className="max-wrapper relative min-h-screen flex flex-col">
         {/* Score Reveal Overlay */}
         {showReveal && analysisResult && (
           <ScoreReveal
@@ -787,10 +777,9 @@ export default function Home() {
           </div>
         </header>
 
-        <main className="flex-1 flex flex-col relative">
-          {/* Transition wrapper for tabs */}
-          <div className="flex-1 animate-fade-in">
-            {/* ===== SCREEN 1: DASHBOARD ===== */}
+        <main className="flex-1 flex flex-col relative overflow-hidden">
+          <div className="flex-1 animate-fade-in overflow-y-auto">
+            {/* SCREEN 1: DASHBOARD */}
             {activeTab === 'dashboard' && (
               <div className="px-6 py-6 pb-24">
                 <div className="mb-8 flex gap-4 items-center animate-slide-up">
@@ -804,7 +793,6 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Quick Scan CTA */}
                 <div onClick={() => setActiveTab('scanner')} className="bg-gradient-to-r from-[#3a3f85] to-[#6610f2] rounded-3xl p-6 flex justify-between items-center cursor-pointer active:scale-[0.98] transition-all shadow-xl shadow-blue-500/10 mb-8 border border-white/10 group">
                   <div>
                     <p className="text-white font-black text-xl leading-tight group-hover:translate-x-1 transition-transform">{t('scan_now')}</p>
@@ -815,7 +803,6 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Recent Scans Section */}
                 <div className="mb-4">
                   <div className="flex justify-between items-end mb-4 px-1">
                     <p className="font-black text-slate-900 text-xs tracking-widest uppercase">{t('history')}</p>
@@ -826,17 +813,10 @@ export default function Home() {
               </div>
             )}
 
-            {/* ===== SCREEN 1.5: PROFILE/SETTINGS ===== */}
-            {activeTab === 'profile' && (
-              <SettingsView preferences={preferences} onUpdate={updatePreferences} />
-            )}
+            {activeTab === 'profile' && <SettingsView preferences={preferences} onUpdate={updatePreferences} />}
+            {activeTab === 'trends' && <TrendsView analytics={analytics} />}
 
-            {/* ===== SCREEN 1.6: TRENDS ===== */}
-            {activeTab === 'trends' && (
-              <TrendsView analytics={analytics} />
-            )}
-
-            {/* ===== SCREEN 2: SCANNER ===== */}
+            {/* SCREEN 2: SCANNER */}
             {activeTab === 'scanner' && (
               <div className="flex-1 flex flex-col pb-24 px-6 pt-6">
                 <div className="flex justify-between items-center mb-6">
@@ -865,14 +845,12 @@ export default function Home() {
                             <span>↺</span> RETAKE
                           </button>
                         ) : (
-                          <>
-                            <button
-                              onClick={takePhoto}
-                              className="w-20 h-20 bg-white rounded-full shadow-2xl active:scale-90 transition-all flex items-center justify-center border-8 border-white/20"
-                            >
-                              <div className="w-12 h-12 rounded-full border-4 border-slate-900"></div>
-                            </button>
-                          </>
+                          <button
+                            onClick={takePhoto}
+                            className="w-20 h-20 bg-white rounded-full shadow-2xl active:scale-90 transition-all flex items-center justify-center border-8 border-white/20"
+                          >
+                            <div className="w-12 h-12 rounded-full border-4 border-slate-900"></div>
+                          </button>
                         )}
                       </div>
                       {!capturedImage && (
@@ -885,77 +863,75 @@ export default function Home() {
                       )}
                     </div>
                   </div>
-
-                  <div className="pb-8 mt-10">
-                    {isAnalyzing ? (
-                      <div className="flex-1 h-16 bg-slate-900 text-white rounded-2xl font-black flex items-center justify-center gap-3">
-                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                        ANALYZING...
-                      </div>
-                    ) : capturedImage ? (
-                      <button onClick={handleAnalyzeClick} className="flex-1 h-16 bg-[#3a3f85] text-white rounded-2xl font-black shadow-lg shadow-blue-500/20 active:scale-98 transition-all uppercase tracking-widest">Generate Scan</button>
-                    ) : (
-                      <div className="flex-1 h-16 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center text-slate-400 text-[10px] font-black uppercase tracking-widest">
-                        Position product label in frame
-                      </div>
-                    )}
-                  </div>
                 </div>
+
+                <div className="pb-8 mt-10">
+                  {isAnalyzing ? (
+                    <div className="flex-1 h-16 bg-slate-900 text-white rounded-2xl font-black flex items-center justify-center gap-3">
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                      ANALYZING...
+                    </div>
+                  ) : capturedImage ? (
+                    <button onClick={handleAnalyzeClick} className="flex-1 h-16 bg-[#3a3f85] text-white rounded-2xl font-black shadow-lg shadow-blue-500/20 active:scale-98 transition-all uppercase tracking-widest">Generate Scan</button>
+                  ) : (
+                    <div className="flex-1 h-16 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center text-slate-400 text-[10px] font-black uppercase tracking-widest">
+                      Position product label in frame
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
 
-                {/* ===== SCREEN 3: RESULTS ===== */}
-                {activeTab === 'results' && analysisResult && (
-                  <div className="px-6 py-6 pb-24 animate-fade-in">
-                    <div className={`rounded-[32px] p-8 text-white ${scoreConfig[analysisResult.health_score].bg} ${scoreConfig[analysisResult.health_score].shadow} mb-8 relative overflow-hidden shadow-2xl`}>
-                      <div className="relative z-10">
-                        <div className="flex justify-between items-start mb-6">
-                          <span className="bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase border border-white/20">{t('health_score')}</span>
-                          <span className="text-4xl filter drop-shadow-md">{scoreConfig[analysisResult.health_score].emoji}</span>
-                        </div>
-                        <h1 className="text-4xl font-black mb-1 leading-tight tracking-tighter uppercase">{analysisResult.product_name || "Unknown Product"}</h1>
-                        <p className="text-white/80 font-black uppercase tracking-[0.2em] text-[10px]">{scoreConfig[analysisResult.health_score].label}</p>
-                        <div className="mt-8 flex items-baseline gap-2">
-                          <span className="text-7xl font-black tracking-tighter">{analysisResult.score_value || 0}</span>
-                          <span className="text-2xl font-bold text-white/40">/10</span>
-                        </div>
-                      </div>
-                      <div className="absolute -bottom-10 -right-10 w-48 h-48 bg-white/10 rounded-full blur-3xl"></div>
+            {/* SCREEN 3: RESULTS */}
+            {activeTab === 'results' && analysisResult && (
+              <div className="px-6 py-6 pb-24 animate-fade-in">
+                <div className={`rounded-[32px] p-8 text-white ${scoreConfig[analysisResult.health_score].bg} ${scoreConfig[analysisResult.health_score].shadow} mb-8 relative overflow-hidden shadow-2xl`}>
+                  <div className="relative z-10">
+                    <div className="flex justify-between items-start mb-6">
+                      <span className="bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase border border-white/20">{t('health_score')}</span>
+                      <span className="text-4xl filter drop-shadow-md">{scoreConfig[analysisResult.health_score].emoji}</span>
                     </div>
+                    <h1 className="text-4xl font-black mb-1 leading-tight tracking-tighter uppercase">{analysisResult.product_name || "Unknown Product"}</h1>
+                    <p className="text-white/80 font-black uppercase tracking-[0.2em] text-[10px]">{scoreConfig[analysisResult.health_score].label}</p>
+                    <div className="mt-8 flex items-baseline gap-2">
+                      <span className="text-7xl font-black tracking-tighter">{analysisResult.score_value || 0}</span>
+                      <span className="text-2xl font-bold text-white/40">/10</span>
+                    </div>
+                  </div>
+                  <div className="absolute -bottom-10 -right-10 w-48 h-48 bg-white/10 rounded-full blur-3xl"></div>
+                </div>
 
-                    <NutritionSummary nutrition={analysisResult.nutrition} />
+                <NutritionSummary nutrition={analysisResult.nutrition} />
 
-                    {/* XAI SECTION */}
-                    {analysisResult.xai && (
-                      <XAIExplanation xaiData={analysisResult.xai} imageUrl={capturedImage} />
-                    )}
+                {analysisResult.xai && <XAIExplanation xaiData={analysisResult.xai} imageUrl={capturedImage} />}
 
-                    {analysisResult.additives && analysisResult.additives.length > 0 && (
-                      <div className="mb-8">
-                        <div className="flex items-center gap-2 mb-4 px-1">
-                          <div className="w-1.5 h-4 bg-slate-900 rounded-full"></div>
-                          <p className="font-black text-slate-900 text-xs tracking-widest uppercase">Ingredient Flags</p>
-                        </div>
-                        <div className="space-y-4">
-                          {analysisResult.additives.map((add, i) => (
-                            <AdditiveCard key={i} additive={add} index={i} />
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                {analysisResult.additives && analysisResult.additives.length > 0 && (
+                  <div className="mb-8">
+                    <div className="flex items-center gap-2 mb-4 px-1">
+                      <div className="w-1.5 h-4 bg-slate-900 rounded-full"></div>
+                      <p className="font-black text-slate-900 text-xs tracking-widest uppercase">Ingredient Flags</p>
+                    </div>
+                    <div className="space-y-4">
+                      {analysisResult.additives.map((add, i) => (
+                        <AdditiveCard key={i} additive={add} index={i} />
+                      ))}
+                    </div>
+                  </div>
+                )}
 
-                    {analysisResult.healthy_alternative && (
-                      <div className="bg-emerald-50 rounded-[32px] p-7 border border-emerald-100 mb-8 shadow-sm">
-                        <div className="flex items-center gap-2 mb-3">
-                          <span className="text-xl">💡</span>
-                          <p className="text-emerald-600 font-black text-[10px] uppercase tracking-widest">Better Alternative</p>
-                        </div>
-                        <p className="text-slate-900 font-black text-xl leading-snug mb-2">{analysisResult.healthy_alternative}</p>
-                        <p className="text-emerald-700/60 text-[11px] font-medium italic">Choosing this improves your health baseline.</p>
-                      </div>
-                    )}
+                {analysisResult.healthy_alternative && (
+                  <div className="bg-emerald-50 rounded-[32px] p-7 border border-emerald-100 mb-8 shadow-sm">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-xl">💡</span>
+                      <p className="text-emerald-600 font-black text-[10px] uppercase tracking-widest">Better Alternative</p>
+                    </div>
+                    <p className="text-slate-900 font-black text-xl leading-snug mb-2">{analysisResult.healthy_alternative}</p>
+                    <p className="text-emerald-700/60 text-[11px] font-medium italic">Choosing this improves your health baseline.</p>
                   </div>
                 )}
               </div>
+            )}
+          </div>
         </main>
 
         {/* BOTTOM NAV */}
@@ -969,7 +945,7 @@ export default function Home() {
               <div className="text-2xl">{activeTab === 'trends' ? '📊' : '📈'}</div>
               <span className="text-[9px] font-black uppercase tracking-widest">Trends</span>
             </button>
-            <div className="w-16 h-1 w-1 px-1"></div> {/* Spacer for middle button */}
+            <div className="w-16 h-1 w-1 px-1"></div>
             <button onClick={() => setActiveTab('results')} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'results' ? 'text-[#3a3f85] scale-110' : 'text-slate-300'}`}>
               <div className="text-2xl">{activeTab === 'results' ? '💎' : '🔍'}</div>
               <span className="text-[9px] font-black uppercase tracking-widest">Result</span>
@@ -988,6 +964,7 @@ export default function Home() {
           </button>
         </nav>
       </div>
+      <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*" />
     </div>
   );
 }
