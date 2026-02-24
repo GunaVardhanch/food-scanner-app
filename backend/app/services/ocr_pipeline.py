@@ -4,7 +4,7 @@ import cv2
 import time
 import os
 import torch
-from preprocessing import apply_clahe
+from app.utils.preprocessing import apply_clahe
 
 
 class AdvancedOCRPipeline:

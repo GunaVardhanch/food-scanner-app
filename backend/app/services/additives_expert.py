@@ -6,7 +6,7 @@ class AdditivesExpert:
     """
     Comprehensive FSSAI/INS additives detection, high-risk flagging,
     and interaction warning system.
-    Loads data from additives_db.json and uses robust regex matching.
+    Loads data from app.services.additives_db.json and uses robust regex matching.
     """
     # Risk tier thresholds
     HIGH_RISK_RED_COUNT = 3      # ≥3 RED additives = HIGH_RISK
@@ -15,7 +15,7 @@ class AdditivesExpert:
     def __init__(self, db_path=None):
         if db_path is None:
             current_dir = os.path.dirname(os.path.abspath(__file__))
-            db_path = os.path.join(current_dir, "additives_db.json")
+            db_path = os.path.join(current_dir, "..", "data", "additives_db.json")
         
         self.db_path = db_path
         self.additives = []
