@@ -53,14 +53,20 @@ class NERService:
         sugar_match = re.search(r'(total\s*)?sugar(s)?[:\s]+(\d+(\.\d+)?)', text_lower)
         sugar = float(sugar_match.group(3)) if sugar_match else 5.0
         
-        # Protein (optional enhancement)
-        protein_match = re.search(r'protein[:\s]+(\d+(\.\d+)?)', text_lower)
-        protein = float(protein_match.group(1)) if protein_match else 2.0
+        # Fat
+        fat_match = re.search(r'(total\s*)?fat[:\s]+(\d+(\.\d+)?)', text_lower)
+        fat = float(fat_match.group(2)) if fat_match else 10.0
+        
+        # Carbohydrates
+        carbs_match = re.search(r'(total\s*)?carb(ohydrate)?(s)?[:\s]+(\d+(\.\d+)?)', text_lower)
+        carbs = float(carbs_match.group(4)) if carbs_match else 25.0
         
         return {
             "sugar_g": sugar,
             "calories": calories,
             "protein_g": protein,
+            "fat_g": fat,
+            "carbs_g": carbs,
             "additives_found": [] # Handled by AdditivesExpert
         }
 

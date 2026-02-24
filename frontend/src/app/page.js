@@ -68,50 +68,128 @@ const Confetti = ({ active }) => {
 };
 
 // --- SCORE REVEAL COMPONENT ---
-const ScoreReveal = ({ score, specificScore, onDone }) => {
+const ScoreReveal = ({ result, onDone }) => {
   const { t } = useTranslation();
-  const [phase, setPhase] = useState('counting'); // counting → flashing → done
+  const [phase, setPhase] = useState('initial'); // initial → nutrition → additives → score
   const [displayNum, setDisplayNum] = useState(0);
 
+  const score = result.health_score || 'YELLOW';
+  const specificScore = result.score_value;
+  const nutrition = result.nutrition || {};
+  const coloring = result.coloring_agents || [];
+
   const scoreConfig = {
-    RED: { label: 'RED — HARMFUL', color: 'from-red-500 to-red-700', glow: 'score-glow-red', emoji: '🚨', textColor: 'text-red-100' },
-    YELLOW: { label: 'YELLOW — MODERATE', color: 'from-yellow-400 to-orange-500', glow: 'score-glow-yellow', emoji: '⚠️', textColor: 'text-yellow-900' },
-    GREEN: { label: 'GREEN — HEALTHY', color: 'from-green-400 to-emerald-600', glow: 'score-glow-green', emoji: '✅', textColor: 'text-green-50' },
+    RED: { label: 'RED — HARMFUL', color: 'from-red-500 to-red-700', glow: 'score-glow-red', emoji: '🚨' },
+    YELLOW: { label: 'YELLOW — MODERATE', color: 'from-yellow-400 to-orange-500', glow: 'score-glow-yellow', emoji: '⚠️' },
+    GREEN: { label: 'GREEN — HEALTHY', color: 'from-green-400 to-emerald-600', glow: 'score-glow-green', emoji: '✅' },
   };
   const cfg = scoreConfig[score] || scoreConfig['YELLOW'];
   const finalNum = specificScore !== undefined ? specificScore : (score === 'RED' ? 2 : score === 'GREEN' ? 9 : 5);
 
   useEffect(() => {
+    // Automated phase transitions
+    const timers = [
+      setTimeout(() => setPhase('nutrition'), 1500),
+      setTimeout(() => setPhase('additives'), 4000),
+      setTimeout(() => setPhase('score'), 6500)
+    ];
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  useEffect(() => {
+    if (phase !== 'score') return;
     let count = 0;
     const interval = setInterval(() => {
       count++;
-      // Randomly cycle numbers during the 'counting' phase
       setDisplayNum(Math.floor(Math.random() * 10));
-      if (count > 25) {
+      if (count > 20) {
         clearInterval(interval);
         setDisplayNum(finalNum);
-        setPhase('flashing');
-        setTimeout(() => { setPhase('done'); onDone(); }, 1500);
+        setTimeout(onDone, 2500);
       }
     }, 60);
     return () => clearInterval(interval);
-  }, [finalNum]);
+  }, [phase, finalNum]);
 
   return (
-    <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-xl flex flex-col items-center justify-center z-50">
+    <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-2xl flex flex-col items-center justify-center z-50 p-6 overflow-hidden">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full blur-[120px] opacity-20 ${cfg.color}`}></div>
+        <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full blur-[150px] opacity-10 ${cfg.color}`}></div>
       </div>
-      <p className="text-white/40 font-black tracking-widest uppercase text-[10px] mb-8 animate-pulse relative z-10">Neural engine analyzing...</p>
-      <div className={`w-64 h-64 rounded-full bg-gradient-to-br ${cfg.color} ${cfg.glow} flex flex-col items-center justify-center
-        reveal-animation transition-all duration-700 relative z-10 border-4 border-white/20 shadow-2xl`}>
-        <span className="text-9xl font-black text-white drop-shadow-2xl">{displayNum}</span>
-        <span className="text-white/70 text-[10px] font-black tracking-widest uppercase mt-1">{t('health_score')}</span>
-      </div>
-      {phase === 'flashing' && (
-        <div className="mt-10 text-center relative z-10 animate-reveal-pop">
-          <span className="text-5xl">{cfg.emoji}</span>
-          <p className="text-3xl font-black mt-4 text-white uppercase tracking-tight">{cfg.label}</p>
+
+      {phase === 'initial' && (
+        <div className="animate-reveal-pop text-center">
+          <div className="w-20 h-20 border-4 border-white/20 border-t-white rounded-full animate-spin mx-auto mb-6"></div>
+          <p className="text-white font-black tracking-widest uppercase text-xs animate-pulse">Initializing Neural Analysis...</p>
+        </div>
+      )}
+
+      {phase === 'nutrition' && (
+        <div className="w-full max-w-sm animate-reveal-pop">
+          <p className="text-emerald-400 font-black tracking-widest uppercase text-[10px] mb-2 text-center">Discovery 01: Nutritional Density</p>
+          <h2 className="text-white text-3xl font-black text-center mb-8">Nutritional Profile</h2>
+          <div className="grid grid-cols-2 gap-4">
+            {[
+              { label: 'SUGAR', val: nutrition.sugar, col: 'text-red-400' },
+              { label: 'FAT', val: nutrition.total_fat, col: 'text-orange-400' },
+              { label: 'CARBS', val: nutrition.carbs, col: 'text-blue-400' },
+              { label: 'CALORIES', val: nutrition.calories, col: 'text-white' }
+            ].map((n, i) => (
+              <div key={i} className="bg-white/5 border border-white/10 rounded-3xl p-6 backdrop-blur-md">
+                <p className="text-slate-500 text-[9px] font-black uppercase tracking-widest mb-1">{n.label}</p>
+                <p className={`text-2xl font-black ${n.col}`}>{n.val}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {phase === 'additives' && (
+        <div className="w-full max-w-sm animate-reveal-pop">
+          <p className="text-amber-400 font-black tracking-widest uppercase text-[10px] mb-2 text-center">Discovery 02: Chemical Signature</p>
+          <h2 className="text-white text-3xl font-black text-center mb-6">Detected Additives</h2>
+
+          <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
+            {coloring.length > 0 && (
+              <div className="bg-rose-500/20 border border-rose-500/30 rounded-2xl p-4 mb-4">
+                <p className="text-rose-400 font-black text-[9px] uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span> Coloring Agents Detected
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {coloring.map((c, i) => (
+                    <span key={i} className="bg-rose-500 text-white text-[10px] font-black px-2.5 py-1 rounded-lg uppercase">{c.name}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {result.additives && result.additives.length > 0 ? (
+              result.additives.map((a, i) => (
+                <div key={i} className="bg-white/5 border border-white/10 rounded-2xl p-4 flex justify-between items-center">
+                  <p className="text-white/80 font-black text-xs">{a.name}</p>
+                  <span className={`text-[8px] font-black px-2 py-0.5 rounded-full uppercase ${a.risk_level === 'RED' ? 'bg-red-500' : 'bg-slate-700'}`}>{a.risk_level}</span>
+                </div>
+              ))
+            ) : (
+              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-6 text-center">
+                <p className="text-emerald-400 font-black text-sm uppercase">Clean Label: No additives found</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {phase === 'score' && (
+        <div className="flex flex-col items-center animate-reveal-pop">
+          <p className="text-[#6c63ff] font-black tracking-widest uppercase text-[10px] mb-8 animate-pulse text-center">Final Consensus Reached</p>
+          <div className={`w-64 h-64 rounded-full bg-gradient-to-br ${cfg.color} ${cfg.glow} flex flex-col items-center justify-center
+            reveal-animation transition-all duration-700 relative z-10 border-8 border-white/20 shadow-2xl`}>
+            <span className="text-9xl font-black text-white drop-shadow-2xl">{displayNum}</span>
+            <span className="text-white/70 text-[10px] font-black tracking-widest uppercase mt-1">Health Score</span>
+          </div>
+          <div className="mt-10 text-center relative z-10 animate-reveal-pop delay-1000">
+            <span className="text-5xl">{cfg.emoji}</span>
+            <p className="text-3xl font-black mt-4 text-white uppercase tracking-tight">{cfg.label}</p>
+          </div>
         </div>
       )}
     </div>
@@ -464,9 +542,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
-  const [capturedImage, setCapturedImage] = useState(null); // Step 1: Ingredients
-  const [nutritionImage, setNutritionImage] = useState(null); // Step 2: Nutrition
-  const [scanStep, setScanStep] = useState(1); // 1: Ingredients, 2: Nutrition
+  const [capturedImage, setCapturedImage] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState(null);
   const [showReveal, setShowReveal] = useState(false);
@@ -509,7 +585,7 @@ export default function Home() {
 
   // Frame Capture Loop
   useEffect(() => {
-    if (activeTab !== 'scanner' || (scanStep === 1 && capturedImage) || (scanStep === 2 && nutritionImage)) return;
+    if (activeTab !== 'scanner' || capturedImage) return;
 
     const interval = setInterval(() => {
       if (videoRef.current && canvasRef.current && workerRef.current) {
@@ -531,7 +607,7 @@ export default function Home() {
     }, 500); // Process every 500ms
 
     return () => clearInterval(interval);
-  }, [activeTab, scanStep, capturedImage, nutritionImage]);
+  }, [activeTab, capturedImage]);
 
   useEffect(() => {
     if (!searchQuery || searchQuery.length < 3) {
@@ -583,8 +659,7 @@ export default function Home() {
       const reader = new FileReader();
       reader.onloadend = () => {
         const dataUrl = reader.result;
-        if (scanStep === 1) setCapturedImage(dataUrl);
-        else setNutritionImage(dataUrl);
+        setCapturedImage(dataUrl);
       };
       reader.readAsDataURL(file);
     }
@@ -603,7 +678,7 @@ export default function Home() {
       } catch (err) { alert("Could not access camera. Please grant permission."); }
     };
     if (activeTab === 'scanner') {
-      if ((scanStep === 1 && !capturedImage) || (scanStep === 2 && !nutritionImage)) {
+      if (!capturedImage) {
         startCamera();
       }
     }
@@ -619,11 +694,7 @@ export default function Home() {
       canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
       const dataUrl = canvas.toDataURL('image/jpeg');
 
-      if (scanStep === 1) {
-        setCapturedImage(dataUrl);
-      } else {
-        setNutritionImage(dataUrl);
-      }
+      setCapturedImage(dataUrl);
 
       const stream = video.srcObject;
       if (stream) stream.getTracks().forEach(t => t.stop());
@@ -631,13 +702,10 @@ export default function Home() {
   };
 
   const retakePhoto = () => {
-    if (scanStep === 1) setCapturedImage(null);
-    else setNutritionImage(null);
+    setCapturedImage(null);
     setAnalysisResult(null);
   };
 
-  const nextStep = () => setScanStep(2);
-  const prevStep = () => setScanStep(1);
 
   const handleAnalyzeClick = async () => {
     if (!capturedImage) return;
@@ -647,8 +715,7 @@ export default function Home() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ingredients_image: capturedImage,
-          nutrition_image: nutritionImage
+          ingredients_image: capturedImage
         })
       });
       const data = await response.json();
@@ -689,7 +756,10 @@ export default function Home() {
       <div className="max-wrapper overflow-x-hidden">
         {/* Score Reveal Overlay */}
         {showReveal && analysisResult && (
-          <ScoreReveal score={analysisResult.health_score} specificScore={analysisResult.score_value} onDone={handleRevealDone} />
+          <ScoreReveal
+            result={analysisResult}
+            onDone={handleRevealDone}
+          />
         )}
 
         {/* Confetti Canvas */}
@@ -771,14 +841,8 @@ export default function Home() {
               <div className="flex-1 flex flex-col pb-24 px-6 pt-6">
                 <div className="flex justify-between items-center mb-6">
                   <div>
-                    <p className="font-black text-slate-900 text-xl tracking-tight">
-                      {scanStep === 1 ? 'Ingredient List' : 'Nutrition Facts'}
-                    </p>
-                    <p className="text-slate-400 text-xs font-bold mt-1">STEP {scanStep} OF 2</p>
-                  </div>
-                  <div className="flex gap-1.5">
-                    <div className={`w-8 h-1.5 rounded-full transition-all duration-500 ${scanStep >= 1 ? 'bg-[#3a3f85]' : 'bg-slate-200'}`}></div>
-                    <div className={`w-8 h-1.5 rounded-full transition-all duration-500 ${scanStep >= 2 ? 'bg-[#3a3f85]' : 'bg-slate-200'}`}></div>
+                    <p className="font-black text-slate-900 text-xl tracking-tight">Product Label Scan</p>
+                    <p className="text-slate-400 text-xs font-bold mt-1">ALIGN CLEARLY FOR ACCURACY</p>
                   </div>
                 </div>
 
@@ -786,80 +850,50 @@ export default function Home() {
                   <div className="relative w-full aspect-[9/12] bg-slate-900 rounded-[40px] shadow-2xl p-1.5 ring-8 ring-slate-50 overflow-hidden group">
                     <canvas ref={canvasRef} className="hidden"></canvas>
                     <div className="relative h-full w-full bg-slate-800 rounded-[34px] overflow-hidden flex items-center justify-center border border-white/10">
-                      {scanStep === 1 ? (
-                        !capturedImage ? (
-                          <video ref={videoRef} autoPlay playsInline muted className="object-cover w-full h-full" />
-                        ) : (
-                          <img src={capturedImage} alt="Captured Ingredients" className="object-cover w-full h-full" />
-                        )
+                      {!capturedImage ? (
+                        <video ref={videoRef} autoPlay playsInline muted className="object-cover w-full h-full" />
                       ) : (
-                        !nutritionImage ? (
-                          <video ref={videoRef} autoPlay playsInline muted className="object-cover w-full h-full" />
-                        ) : (
-                          <img src={nutritionImage} alt="Captured Nutrition" className="object-cover w-full h-full" />
-                        )
+                        <img src={capturedImage} alt="Captured Product Label" className="object-cover w-full h-full" />
                       )}
 
-                      {((scanStep === 1 && !capturedImage) || (scanStep === 2 && !nutritionImage)) && (
-                        <>
-                          <div className="scanner-line"></div>
-                          <div className="absolute inset-0 border-[40px] border-black/20 pointer-events-none"></div>
-                          <div className="absolute top-6 left-6 right-6 bottom-6 border-2 border-dashed border-white/30 rounded-3xl pointer-events-none"></div>
-                        </>
-                      )}
-                    </div>
-
-                    <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileUpload} />
-
-                    <div className="absolute bottom-8 left-0 right-0 flex justify-center gap-4 z-20 px-8">
-                      {(scanStep === 1 ? capturedImage : nutritionImage) ? (
-                        <button
-                          onClick={retakePhoto}
-                          className="flex-1 h-14 bg-white/20 backdrop-blur-md border border-white/40 text-white text-xs font-black rounded-2xl shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2"
-                        >
-                          <span>↺</span> RETAKE
-                        </button>
-                      ) : (
-                        <>
+                      <div className="absolute bottom-8 left-0 right-0 flex justify-center gap-4 z-20 px-8">
+                        {capturedImage ? (
                           <button
-                            onClick={takePhoto}
-                            className="w-20 h-20 bg-white rounded-full shadow-2xl active:scale-90 transition-all flex items-center justify-center border-8 border-white/20"
+                            onClick={retakePhoto}
+                            className="flex-1 h-14 bg-white/20 backdrop-blur-md border border-white/40 text-white text-xs font-black rounded-2xl shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2"
                           >
-                            <div className="w-12 h-12 rounded-full border-4 border-slate-900"></div>
+                            <span>↺</span> RETAKE
                           </button>
-                        </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={takePhoto}
+                              className="w-20 h-20 bg-white rounded-full shadow-2xl active:scale-90 transition-all flex items-center justify-center border-8 border-white/20"
+                            >
+                              <div className="w-12 h-12 rounded-full border-4 border-slate-900"></div>
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      {!capturedImage && (
+                        <button
+                          onClick={triggerFileUpload}
+                          className="absolute top-6 right-6 w-12 h-12 bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl flex items-center justify-center text-white text-xl shadow-xl active:scale-90 transition-all"
+                        >
+                          📁
+                        </button>
                       )}
                     </div>
-                    {!(scanStep === 1 ? capturedImage : nutritionImage) && (
-                      <button
-                        onClick={triggerFileUpload}
-                        className="absolute top-6 right-6 w-12 h-12 bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl flex items-center justify-center text-white text-xl shadow-xl active:scale-90 transition-all"
-                      >
-                        📁
-                      </button>
-                    )}
                   </div>
-                </div>
 
-                <div className="pb-8 mt-10">
-                  <div className="flex gap-4">
-                    {scanStep === 2 && (
-                      <button
-                        onClick={prevStep}
-                        className="w-16 h-16 bg-slate-100 rounded-2xl font-black flex items-center justify-center text-xl hover:bg-slate-200 transition-colors"
-                      >
-                        ←
-                      </button>
-                    )}
+                  <div className="pb-8 mt-10">
                     {isAnalyzing ? (
                       <div className="flex-1 h-16 bg-slate-900 text-white rounded-2xl font-black flex items-center justify-center gap-3">
                         <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                         ANALYZING...
                       </div>
-                    ) : (scanStep === 1 && capturedImage) ? (
-                      <button onClick={nextStep} className="flex-1 h-16 bg-[#3a3f85] text-white rounded-2xl font-black shadow-lg shadow-blue-500/20 active:scale-98 transition-all">CONTINUE TO NUTRITION</button>
-                    ) : (scanStep === 2 && nutritionImage) ? (
-                      <button onClick={handleAnalyzeClick} className="flex-1 h-16 bg-emerald-500 text-white rounded-2xl font-black shadow-lg shadow-emerald-500/20 active:scale-98 transition-all uppercase tracking-widest">Generate Scan</button>
+                    ) : capturedImage ? (
+                      <button onClick={handleAnalyzeClick} className="flex-1 h-16 bg-[#3a3f85] text-white rounded-2xl font-black shadow-lg shadow-blue-500/20 active:scale-98 transition-all uppercase tracking-widest">Generate Scan</button>
                     ) : (
                       <div className="flex-1 h-16 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center text-slate-400 text-[10px] font-black uppercase tracking-widest">
                         Position product label in frame
@@ -867,62 +901,61 @@ export default function Home() {
                     )}
                   </div>
                 </div>
-              </div>
             )}
 
-            {/* ===== SCREEN 3: RESULTS ===== */}
-            {activeTab === 'results' && analysisResult && (
-              <div className="px-6 py-6 pb-24 animate-fade-in">
-                <div className={`rounded-[32px] p-8 text-white ${scoreConfig[analysisResult.health_score].bg} ${scoreConfig[analysisResult.health_score].shadow} mb-8 relative overflow-hidden shadow-2xl`}>
-                  <div className="relative z-10">
-                    <div className="flex justify-between items-start mb-6">
-                      <span className="bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase border border-white/20">{t('health_score')}</span>
-                      <span className="text-4xl filter drop-shadow-md">{scoreConfig[analysisResult.health_score].emoji}</span>
+                {/* ===== SCREEN 3: RESULTS ===== */}
+                {activeTab === 'results' && analysisResult && (
+                  <div className="px-6 py-6 pb-24 animate-fade-in">
+                    <div className={`rounded-[32px] p-8 text-white ${scoreConfig[analysisResult.health_score].bg} ${scoreConfig[analysisResult.health_score].shadow} mb-8 relative overflow-hidden shadow-2xl`}>
+                      <div className="relative z-10">
+                        <div className="flex justify-between items-start mb-6">
+                          <span className="bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase border border-white/20">{t('health_score')}</span>
+                          <span className="text-4xl filter drop-shadow-md">{scoreConfig[analysisResult.health_score].emoji}</span>
+                        </div>
+                        <h1 className="text-4xl font-black mb-1 leading-tight tracking-tighter uppercase">{analysisResult.product_name || "Unknown Product"}</h1>
+                        <p className="text-white/80 font-black uppercase tracking-[0.2em] text-[10px]">{scoreConfig[analysisResult.health_score].label}</p>
+                        <div className="mt-8 flex items-baseline gap-2">
+                          <span className="text-7xl font-black tracking-tighter">{analysisResult.score_value || 0}</span>
+                          <span className="text-2xl font-bold text-white/40">/10</span>
+                        </div>
+                      </div>
+                      <div className="absolute -bottom-10 -right-10 w-48 h-48 bg-white/10 rounded-full blur-3xl"></div>
                     </div>
-                    <h1 className="text-4xl font-black mb-1 leading-tight tracking-tighter uppercase">{analysisResult.product_name || "Unknown Product"}</h1>
-                    <p className="text-white/80 font-black uppercase tracking-[0.2em] text-[10px]">{scoreConfig[analysisResult.health_score].label}</p>
-                    <div className="mt-8 flex items-baseline gap-2">
-                      <span className="text-7xl font-black tracking-tighter">{analysisResult.score_value || 0}</span>
-                      <span className="text-2xl font-bold text-white/40">/10</span>
-                    </div>
-                  </div>
-                  <div className="absolute -bottom-10 -right-10 w-48 h-48 bg-white/10 rounded-full blur-3xl"></div>
-                </div>
 
-                <NutritionSummary nutrition={analysisResult.nutrition} />
+                    <NutritionSummary nutrition={analysisResult.nutrition} />
 
-                {/* XAI SECTION */}
-                {analysisResult.xai && (
-                  <XAIExplanation xaiData={analysisResult.xai} imageUrl={nutritionImage} />
-                )}
+                    {/* XAI SECTION */}
+                    {analysisResult.xai && (
+                      <XAIExplanation xaiData={analysisResult.xai} imageUrl={capturedImage} />
+                    )}
 
-                {analysisResult.additives && analysisResult.additives.length > 0 && (
-                  <div className="mb-8">
-                    <div className="flex items-center gap-2 mb-4 px-1">
-                      <div className="w-1.5 h-4 bg-slate-900 rounded-full"></div>
-                      <p className="font-black text-slate-900 text-xs tracking-widest uppercase">Ingredient Flags</p>
-                    </div>
-                    <div className="space-y-4">
-                      {analysisResult.additives.map((add, i) => (
-                        <AdditiveCard key={i} additive={add} index={i} />
-                      ))}
-                    </div>
-                  </div>
-                )}
+                    {analysisResult.additives && analysisResult.additives.length > 0 && (
+                      <div className="mb-8">
+                        <div className="flex items-center gap-2 mb-4 px-1">
+                          <div className="w-1.5 h-4 bg-slate-900 rounded-full"></div>
+                          <p className="font-black text-slate-900 text-xs tracking-widest uppercase">Ingredient Flags</p>
+                        </div>
+                        <div className="space-y-4">
+                          {analysisResult.additives.map((add, i) => (
+                            <AdditiveCard key={i} additive={add} index={i} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
-                {analysisResult.healthy_alternative && (
-                  <div className="bg-emerald-50 rounded-[32px] p-7 border border-emerald-100 mb-8 shadow-sm">
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className="text-xl">💡</span>
-                      <p className="text-emerald-600 font-black text-[10px] uppercase tracking-widest">Better Alternative</p>
-                    </div>
-                    <p className="text-slate-900 font-black text-xl leading-snug mb-2">{analysisResult.healthy_alternative}</p>
-                    <p className="text-emerald-700/60 text-[11px] font-medium italic">Choosing this improves your health baseline.</p>
+                    {analysisResult.healthy_alternative && (
+                      <div className="bg-emerald-50 rounded-[32px] p-7 border border-emerald-100 mb-8 shadow-sm">
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className="text-xl">💡</span>
+                          <p className="text-emerald-600 font-black text-[10px] uppercase tracking-widest">Better Alternative</p>
+                        </div>
+                        <p className="text-slate-900 font-black text-xl leading-snug mb-2">{analysisResult.healthy_alternative}</p>
+                        <p className="text-emerald-700/60 text-[11px] font-medium italic">Choosing this improves your health baseline.</p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-            )}
-          </div>
         </main>
 
         {/* BOTTOM NAV */}

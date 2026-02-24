@@ -13,7 +13,7 @@
     "@tensorflow/tfjs-tflite": "^0.0.1-alpha.10",
     "i18next": "^25.8.13",
     "i18next-browser-languagedetector": "^8.2.1",
-    "next": "15.1.7",
+    "next": "15.2.9",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "react-i18next": "^16.5.4"
@@ -22,7 +22,7 @@
     "@tailwindcss/postcss": "^4.0.0",
     "autoprefixer": "^10.4.24",
     "eslint": "^9",
-    "eslint-config-next": "15.1.7",
+    "eslint-config-next": "15.2.9",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.0.0"
   }
