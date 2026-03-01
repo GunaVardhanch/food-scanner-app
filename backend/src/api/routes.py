@@ -126,14 +126,22 @@ def analyze():
     risk_summary = additives_expert.get_risk_summary(detected_additives)
     coloring_agents = [a for a in detected_additives if a.get("category") == "Colour"]
 
-    # 5. CONSTRUCT RESPONSE
+    # 5. DETERMINE HEALTH COLOR using BOTH numeric score AND additive risk
     risk_tier = risk_summary.get("risk_tier", "SAFE")
+
+    # Additive-based override (takes precedence if additives are bad)
     if risk_tier in ["CRITICAL", "HIGH_RISK"]:
         health_color = "RED"
-    elif risk_tier in ["MODERATE_RISK", "LOW_RISK"]:
+    elif risk_tier in ["MODERATE_RISK"]:
         health_color = "YELLOW"
     else:
-        health_color = "GREEN"
+        # No serious additive risk: fall back to numeric score bands
+        if health_score < 4.0:
+            health_color = "RED"
+        elif health_score < 6.5:
+            health_color = "YELLOW"
+        else:
+            health_color = "GREEN"
 
     response = {
         "gtin": product_data.get("gtin"),
