@@ -25,8 +25,8 @@ COPY . .
 ENV EASYOCR_MODULE_PATH=/app/easyocr_models
 RUN python -c "import easyocr; reader = easyocr.Reader(['en', 'hi', 'mr'], model_storage_directory='/app/easyocr_models', download_enabled=True)"
 
-# Expose the port (Railway metadata)
-EXPOSE 8000
+# Expose the port (Hugging Face Spaces default is 7860)
+EXPOSE 7860
 
-# Start Uvicorn - note: we use the $PORT env var if Railway provides it
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-7860}
+# Start Gunicorn 
+CMD ["gunicorn", "--bind", "0.0.0.0:7860", "run:app", "--timeout", "120"]

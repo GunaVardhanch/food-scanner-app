@@ -3,7 +3,7 @@ import xgboost as xgb
 import numpy as np
 import json
 
-from app.config import HEALTH_SCORE_MODEL_PATH
+from src.configs.config import HEALTH_SCORE_MODEL_PATH
 
 class HealthScoreEnsemble:
     def __init__(self):
