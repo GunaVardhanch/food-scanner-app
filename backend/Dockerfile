@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y \
     libgl1 \
     libglib2.0-0 \
     git \
+    libzbar0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy only requirements first to cache the heavy pip layer

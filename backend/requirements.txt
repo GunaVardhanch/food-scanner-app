@@ -12,3 +12,4 @@ shap
 transformers
 easyocr
 ultralytics
+pyzbar
