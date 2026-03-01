@@ -1,9 +1,17 @@
 import cv2
-from pyzbar import pyzbar
 import logging
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+try:
+    from pyzbar import pyzbar as _pyzbar
+    _PYZBAR_AVAILABLE = True
+except (ImportError, Exception):
+    _pyzbar = None
+    _PYZBAR_AVAILABLE = False
+    logger.warning("pyzbar not available — barcode scanning disabled, GTIN lookup via API still works.")
+
 
 def extract_barcode(image_path: str) -> Optional[str]:
     """
@@ -19,8 +27,12 @@ def extract_barcode(image_path: str) -> Optional[str]:
         # Convert to grayscale for better detection
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         
+        if not _PYZBAR_AVAILABLE:
+            logger.warning("Barcode: pyzbar not available, skipping barcode detection.")
+            return None
+
         # Decode barcodes
-        barcodes = pyzbar.decode(gray)
+        barcodes = _pyzbar.decode(gray)
         
         if not barcodes:
             # Try a slightly enhanced version if first attempt fails
