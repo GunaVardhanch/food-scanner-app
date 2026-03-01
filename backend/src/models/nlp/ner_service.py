@@ -3,7 +3,7 @@ from transformers import BertTokenizerFast, BertForTokenClassification
 import re
 import os
 
-from app.config import NUTRITION_NER_MODEL_DIR
+from src.configs.config import NUTRITION_NER_MODEL_DIR
 
 class NERService:
     def __init__(self, model_dir=None):
@@ -80,6 +80,35 @@ class NERService:
             "carbs_g": carbs,
             "additives_found": [] # Handled by AdditivesExpert
         }
+
+    def get_product_identity(self, text):
+        """
+        Heuristic extraction of Brand and Product Name from raw OCR text.
+        Usually the first non-generic lines are the most relevant.
+        """
+        lines = [line.strip() for line in text.split('\n') if len(line.strip()) > 2]
+        if not lines:
+            return "Unknown Product", "Detected Brand"
+        
+        # Clean lines from generic OCR noise
+        noise = ["nutrition", "facts", "ingredients", "label", "contains", "per 100g"]
+        clean_lines = []
+        for line in lines:
+            if not any(n in line.lower() for n in noise):
+                clean_lines.append(line)
+        
+        if not clean_lines:
+            return lines[0], "Detected Brand"
+            
+        product_name = clean_lines[0]
+        brand = "Detected Brand"
+        
+        # Simple brand heuristic: if first line is short, it might be the brand
+        if len(clean_lines) > 1 and len(clean_lines[0]) < 15:
+            brand = clean_lines[0]
+            product_name = clean_lines[1]
+            
+        return product_name, brand
 
 if __name__ == "__main__":
     ner = NERService()

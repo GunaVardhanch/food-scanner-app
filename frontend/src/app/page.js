@@ -6,7 +6,7 @@ import '../i18n';
 
 const API_BASE_URL = typeof process.env.NEXT_PUBLIC_API_URL === 'string'
   ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '')
-  : 'http://localhost:7860';
+  : 'http://127.0.0.1:7860';
 
 // --- ICONS ---
 const UserIcon = () => (
@@ -124,6 +124,16 @@ const ScoreReveal = ({ result, onDone }) => {
         </div>
       )}
 
+      {phase !== 'initial' && (
+        <div className="absolute top-12 left-0 right-0 text-center px-6 animate-reveal-pop">
+          <p className="text-white/40 font-black uppercase tracking-[0.3em] text-[9px] mb-1">Identity Confirmed</p>
+          <h3 className="text-white font-black text-lg uppercase tracking-tight">
+            {result.brand && <span className="opacity-60">{result.brand.split(',')[0]} — </span>}
+            {result.product_name || "Unknown Product"}
+          </h3>
+        </div>
+      )}
+
       {phase === 'nutrition' && (
         <div className="w-full max-w-sm animate-reveal-pop">
           <p className="text-emerald-400 font-black tracking-widest uppercase text-[10px] mb-2 text-center">Discovery 01: Nutritional Density</p>
@@ -237,7 +247,7 @@ const AdditiveCard = ({ additive, index }) => {
 
 
 // --- XAI EXPLANATION COMPONENT ---
-const XAIExplanation = ({ xaiData, imageUrl }) => {
+const XAIExplanation = ({ xaiData, imageUrl, productName }) => {
   const { t } = useTranslation();
   const [showHeatmap, setShowHeatmap] = useState(false);
 
@@ -252,7 +262,7 @@ const XAIExplanation = ({ xaiData, imageUrl }) => {
       <div className="flex justify-between items-center mb-6 relative z-10">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400">📊</div>
-          <p className="font-black text-sm uppercase tracking-widest">Interpretability Layer</p>
+          <p className="font-black text-sm uppercase tracking-widest">Factors Analysis — {productName || "Detected Product"}</p>
         </div>
         <div className="flex gap-2">
           <span className="bg-white/5 border border-white/10 px-2 py-1 rounded-md text-[9px] font-black text-slate-400 uppercase">XGBoost</span>
@@ -697,9 +707,21 @@ export default function Home() {
     setAnalysisResult(null);
   };
 
+  const [analysisStatus, setAnalysisStatus] = useState("");
+
   const handleAnalyzeClick = async () => {
     if (!capturedImage) return;
     setIsAnalyzing(true);
+    setAnalysisStatus("Initializing analysis...");
+
+    // Timer for descriptive feedback
+    const statusTimers = [
+      setTimeout(() => setAnalysisStatus("Loading AI models (First run takes ~30-60s)..."), 3000),
+      setTimeout(() => setAnalysisStatus("Optimizing image for OCR..."), 15000),
+      setTimeout(() => setAnalysisStatus("Extracting nutritional data..."), 25000),
+      setTimeout(() => setAnalysisStatus("Almost there, finalizing report..."), 45000)
+    ];
+
     try {
       const response = await fetch(`${API_BASE_URL}/analyze`, {
         method: 'POST',
@@ -709,12 +731,22 @@ export default function Home() {
         })
       });
       const data = await response.json();
-      setAnalysisResult(data);
-      setIsAnalyzing(false);
-      setShowReveal(true);
+
+      if (response.status === 413 || (data.error && data.error.includes("Memory"))) {
+        alert("The server is out of memory. Try searching by Barcode (GTIN) instead.");
+      } else if (!response.ok) {
+        throw new Error(data.error || "Analysis failed");
+      } else {
+        setAnalysisResult(data);
+        setShowReveal(true);
+      }
     } catch (error) {
-      alert("Failed to connect to the backend server.");
+      console.error("Analysis Error:", error);
+      alert(error.message || "Failed to connect to the backend server.");
+    } finally {
       setIsAnalyzing(false);
+      setAnalysisStatus("");
+      statusTimers.forEach(clearTimeout);
     }
   };
 
@@ -867,9 +899,14 @@ export default function Home() {
 
                 <div className="pb-8 mt-10">
                   {isAnalyzing ? (
-                    <div className="flex-1 h-16 bg-slate-900 text-white rounded-2xl font-black flex items-center justify-center gap-3">
-                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                      ANALYZING...
+                    <div className="flex-1 flex flex-col items-center justify-center gap-3">
+                      <div className="h-16 w-full bg-slate-900 text-white rounded-2xl font-black flex items-center justify-center gap-3">
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                        ANALYZING...
+                      </div>
+                      {analysisStatus && (
+                        <p className="text-[10px] text-slate-500 font-black animate-pulse uppercase tracking-widest">{analysisStatus}</p>
+                      )}
                     </div>
                   ) : capturedImage ? (
                     <button onClick={handleAnalyzeClick} className="flex-1 h-16 bg-[#3a3f85] text-white rounded-2xl font-black shadow-lg shadow-blue-500/20 active:scale-98 transition-all uppercase tracking-widest">Generate Scan</button>
@@ -885,25 +922,34 @@ export default function Home() {
             {/* SCREEN 3: RESULTS */}
             {activeTab === 'results' && analysisResult && (
               <div className="px-6 py-6 pb-24 animate-fade-in">
-                <div className={`rounded-[32px] p-8 text-white ${scoreConfig[analysisResult.health_score].bg} ${scoreConfig[analysisResult.health_score].shadow} mb-8 relative overflow-hidden shadow-2xl`}>
-                  <div className="relative z-10">
-                    <div className="flex justify-between items-start mb-6">
-                      <span className="bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase border border-white/20">{t('health_score')}</span>
-                      <span className="text-4xl filter drop-shadow-md">{scoreConfig[analysisResult.health_score].emoji}</span>
+                {(() => {
+                  const key = analysisResult.health_score || 'YELLOW';
+                  const cfg = scoreConfig[key] || scoreConfig['YELLOW'];
+                  return (
+                    <div className={`rounded-[32px] p-8 text-white ${cfg.bg} ${cfg.shadow} mb-8 relative overflow-hidden shadow-2xl`}>
+                      <div className="relative z-10">
+                        <div className="flex justify-between items-start mb-6">
+                          <span className="bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase border border-white/20">{t('health_score')}</span>
+                          <span className="text-4xl filter drop-shadow-md">{cfg.emoji}</span>
+                        </div>
+                        <h1 className="text-4xl font-black mb-1 leading-tight tracking-tighter uppercase">
+                          {analysisResult.brand && <span className="text-white/60 block text-[10px] tracking-widest mb-1.5 font-black">{analysisResult.brand.toUpperCase()}</span>}
+                          {analysisResult.product_name || "Unknown Product"}
+                        </h1>
+                        <p className="text-white/80 font-black uppercase tracking-[0.2em] text-[10px]">{cfg.label}</p>
+                        <div className="mt-8 flex items-baseline gap-2">
+                          <span className="text-7xl font-black tracking-tighter">{analysisResult.score_value || 0}</span>
+                          <span className="text-2xl font-bold text-white/40">/10</span>
+                        </div>
+                      </div>
+                      <div className="absolute -bottom-10 -right-10 w-48 h-48 bg-white/10 rounded-full blur-3xl"></div>
                     </div>
-                    <h1 className="text-4xl font-black mb-1 leading-tight tracking-tighter uppercase">{analysisResult.product_name || "Unknown Product"}</h1>
-                    <p className="text-white/80 font-black uppercase tracking-[0.2em] text-[10px]">{scoreConfig[analysisResult.health_score].label}</p>
-                    <div className="mt-8 flex items-baseline gap-2">
-                      <span className="text-7xl font-black tracking-tighter">{analysisResult.score_value || 0}</span>
-                      <span className="text-2xl font-bold text-white/40">/10</span>
-                    </div>
-                  </div>
-                  <div className="absolute -bottom-10 -right-10 w-48 h-48 bg-white/10 rounded-full blur-3xl"></div>
-                </div>
+                  );
+                })()}
 
                 <NutritionSummary nutrition={analysisResult.nutrition} />
 
-                {analysisResult.xai && <XAIExplanation xaiData={analysisResult.xai} imageUrl={capturedImage} />}
+                {analysisResult.xai && <XAIExplanation xaiData={analysisResult.xai} imageUrl={capturedImage} productName={analysisResult.product_name} />}
 
                 {analysisResult.additives && analysisResult.additives.length > 0 && (
                   <div className="mb-8">

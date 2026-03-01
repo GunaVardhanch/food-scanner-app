@@ -84,9 +84,18 @@ def analyze():
         )
         
         # 3. CONSTRUCT RESPONSE (Sync keys with frontend)
+        # Map detailed risk tiers to simple traffic-light categories for the UI
+        risk_tier = risk_summary.get("risk_tier", "SAFE")
+        if risk_tier in ["CRITICAL", "HIGH_RISK"]:
+            health_color = "RED"
+        elif risk_tier in ["MODERATE_RISK", "LOW_RISK"]:
+            health_color = "YELLOW"
+        else:
+            health_color = "GREEN"
+
         response = {
             "product_name": "Product Scan Result",
-            "health_score": risk_summary.get("risk_tier", "YELLOW").replace("_RISK", ""),
+            "health_score": health_color,
             "score_value": round(health_score, 1),
             "additives": detected_additives,
             "coloring_agents": coloring_agents,

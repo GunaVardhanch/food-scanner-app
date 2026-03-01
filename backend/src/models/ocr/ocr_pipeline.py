@@ -4,8 +4,8 @@ import cv2
 import time
 import os
 import torch
-from app.utils.preprocessing import apply_clahe
-from app.config import OCR_MODELS_DIR
+from src.utils.preprocessing import apply_clahe
+from src.configs.config import OCR_MODELS_DIR
 
 
 class AdvancedOCRPipeline:
@@ -21,24 +21,34 @@ class AdvancedOCRPipeline:
     @property
     def reader(self):
         if self._reader is None:
-            gpu_available = torch.cuda.is_available()
-            # Prefer a configured model directory (env or configured OCR_MODELS_DIR); otherwise allow EasyOCR to download models
-            model_dir = os.environ.get("EASYOCR_MODULE_PATH") or OCR_MODELS_DIR
-            if model_dir and os.path.isdir(model_dir):
-                self._reader = easyocr.Reader(
-                    ['en', 'hi', 'mr'],
-                    gpu=gpu_available,
-                    model_storage_directory=model_dir,
-                    download_enabled=False,
-                )
-                print(f"OCRPipeline: EasyOCR loaded from {model_dir} (gpu={gpu_available}).")
-            else:
-                self._reader = easyocr.Reader(
-                    ['en', 'hi', 'mr'],
-                    gpu=gpu_available,
-                    download_enabled=True,
-                )
-                print(f"OCRPipeline: EasyOCR loaded with default storage (gpu={gpu_available}, download_enabled=True).")
+            try:
+                gpu_available = torch.cuda.is_available()
+                # Prefer a configured model directory (env or configured OCR_MODELS_DIR); otherwise allow EasyOCR to download models
+                model_dir = os.environ.get("EASYOCR_MODULE_PATH") or OCR_MODELS_DIR
+                
+                print(f"OCRPipeline: Attempting to load EasyOCR models (GPU={gpu_available})...")
+                
+                if model_dir and os.path.isdir(model_dir):
+                    self._reader = easyocr.Reader(
+                        ['en', 'hi', 'mr'],
+                        gpu=gpu_available,
+                        model_storage_directory=model_dir,
+                        download_enabled=False,
+                    )
+                    print(f"OCRPipeline: EasyOCR successfully loaded from {model_dir}.")
+                else:
+                    self._reader = easyocr.Reader(
+                        ['en', 'hi', 'mr'],
+                        gpu=gpu_available,
+                        download_enabled=True,
+                    )
+                    print(f"OCRPipeline: EasyOCR successfully loaded with default storage (downloaded models).")
+            except MemoryError:
+                print("CRITICAL: OCRPipeline failed to load models due to MemoryError.")
+                raise MemoryError("System out of memory while loading OCR models. Please upgrade RAM or use Lite mode.")
+            except Exception as e:
+                print(f"ERROR: OCRPipeline failed during EasyOCR init: {e}")
+                raise e
 
         return self._reader
 

@@ -12,7 +12,7 @@ pinned: false
 Real-time ingredients analysis and health scoring for Indian food products.
 
 - **Frontend**: Next.js (Static Export)
-- **Backend**: FastAPI
+- **Backend**: Flask
 - **OCR**: EasyOCR + YOLOv8
 - **Intelligence**: Custom NER + Additives Expert System
 

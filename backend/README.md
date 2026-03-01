@@ -8,4 +8,4 @@ pinned: false
 ---
 
 # Food Scanner API Backend
-FastAPI backend for analyzing food ingredients and nutritional labels.
+Flask backend for analyzing food ingredients and nutritional labels.
