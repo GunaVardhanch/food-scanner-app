@@ -29,5 +29,5 @@ RUN python -c "import easyocr; reader = easyocr.Reader(['en', 'hi', 'mr'], model
 # Expose the port (Hugging Face Spaces default is 7860)
 EXPOSE 7860
 
-# Start Gunicorn 
-CMD ["gunicorn", "--bind", "0.0.0.0:7860", "run:app", "--timeout", "120"]
+# Seed Indian products into local cache, then start the server
+CMD python seed_indian_products.py && gunicorn --bind 0.0.0.0:7860 run:app --timeout 120
