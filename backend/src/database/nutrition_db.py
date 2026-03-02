@@ -107,7 +107,16 @@ class NutritionDB:
     def _query_off_api(self, base_url: str, gtin: str, source: str) -> Optional[Dict[str, Any]]:
         """Query an Open Food Facts endpoint (world or india)."""
         try:
-            response = requests.get(f"{base_url}{gtin}", timeout=15)
+            # Request localised name fields for Indian products
+            params = {
+                "fields": (
+                    "product_name,product_name_en,product_name_hi,product_name_mr,"
+                    "product_name_ta,product_name_te,product_name_kn,product_name_gu,"
+                    "abbreviated_product_name,generic_name,"
+                    "brands,ingredients_text,nutriments"
+                )
+            }
+            response = requests.get(f"{base_url}{gtin}", params=params, timeout=15)
             if response.status_code == 200:
                 data = response.json()
                 if data.get("status") == 1:
@@ -115,10 +124,25 @@ class NutritionDB:
                     nutriments = product.get("nutriments", {})
                     ingredients_text = product.get("ingredients_text", "")
                     ingredients = [i.strip() for i in ingredients_text.split(",")] if ingredients_text else []
+                    # Best-effort name: try all Indian language codes before giving up
+                    product_name = (
+                        product.get("product_name")
+                        or product.get("product_name_en")
+                        or product.get("product_name_hi")
+                        or product.get("product_name_mr")
+                        or product.get("product_name_ta")
+                        or product.get("product_name_te")
+                        or product.get("product_name_kn")
+                        or product.get("product_name_gu")
+                        or product.get("abbreviated_product_name")
+                        or product.get("generic_name")
+                        or "Unknown Product"
+                    )
+                    product_name = " ".join(product_name.split())  # normalise whitespace
                     return {
                         "gtin": gtin,
-                        "product_name": product.get("product_name") or product.get("product_name_en", "Unknown Product"),
-                        "brand": product.get("brands", "Unknown Brand"),
+                        "product_name": product_name,
+                        "brand": product.get("brands") or "Unknown Brand",
                         "ingredients": ingredients,
                         "nutrition": {
                             "calories": nutriments.get("energy-kcal_100g", 0),
