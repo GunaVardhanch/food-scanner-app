@@ -551,6 +551,7 @@ export default function Home() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const [capturedImage, setCapturedImage] = useState(null);
+  const [scanStage, setScanStage] = useState('barcode'); // 'barcode' → 'ingredients'
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState(null);
   const [showReveal, setShowReveal] = useState(false);
@@ -562,6 +563,7 @@ export default function Home() {
   const [suggestions, setSuggestions] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const fileInputRef = useRef(null);
+  const [productName, setProductName] = useState("");
   const [preferences, setPreferences] = useState({
     vegan: false,
     no_sugar: false,
@@ -711,41 +713,86 @@ export default function Home() {
 
   const handleAnalyzeClick = async () => {
     if (!capturedImage) return;
+
+    // ── INGREDIENTS / LABEL SCAN (Indian food side-pipeline) ──────────────────
+    if (scanStage === 'ingredients') {
+      if (!productName.trim()) {
+        alert('Please enter the product name before scanning.');
+        return;
+      }
+      setIsAnalyzing(true);
+      setAnalysisStatus('Reading label text...');
+      const statusTimers = [
+        setTimeout(() => setAnalysisStatus('Running OCR on ingredients list...'), 3000),
+        setTimeout(() => setAnalysisStatus('Searching FSSAI & Open Food Facts India...'), 10000),
+        setTimeout(() => setAnalysisStatus('Computing health score & additive alerts...'), 20000),
+      ];
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/scan-label`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: capturedImage, product_name: productName.trim() })
+        });
+        const rawText = await response.text();
+        let data;
+        try { data = rawText ? JSON.parse(rawText) : {}; }
+        catch { throw new Error('Backend returned an unexpected response.'); }
+
+        if (!response.ok) throw new Error(data.error || 'Label analysis failed');
+        setAnalysisResult(data);
+        setShowReveal(true);
+      } catch (error) {
+        console.error('Label Analysis Error:', error);
+        alert(error.message || 'Failed to connect to the backend server.');
+      } finally {
+        setIsAnalyzing(false);
+        setAnalysisStatus('');
+        statusTimers.forEach(clearTimeout);
+      }
+      return;
+    }
+
+    // ── BARCODE SCAN (primary pipeline) ────────────────────────────────────────
     setIsAnalyzing(true);
-    setAnalysisStatus("Initializing analysis...");
-
-    // Timer for descriptive feedback
+    setAnalysisStatus('Reading barcode...');
     const statusTimers = [
-      setTimeout(() => setAnalysisStatus("Loading AI models (First run takes ~30-60s)..."), 3000),
-      setTimeout(() => setAnalysisStatus("Optimizing image for OCR..."), 15000),
-      setTimeout(() => setAnalysisStatus("Extracting nutritional data..."), 25000),
-      setTimeout(() => setAnalysisStatus("Almost there, finalizing report..."), 45000)
+      setTimeout(() => setAnalysisStatus('Decoding barcode...'), 2000),
+      setTimeout(() => setAnalysisStatus('Looking up product in database...'), 5000),
+      setTimeout(() => setAnalysisStatus('Fetching nutrition data...'), 10000),
+      setTimeout(() => setAnalysisStatus('Almost there, computing health score...'), 18000)
     ];
-
     try {
-      const response = await fetch(`${API_BASE_URL}/analyze`, {
+      const response = await fetch(`${API_BASE_URL}/api/scan`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ingredients_image: capturedImage
-        })
+        body: JSON.stringify({ image: capturedImage })
       });
-      const data = await response.json();
+      const rawText = await response.text();
+      let data;
+      try { data = rawText ? JSON.parse(rawText) : {}; }
+      catch { throw new Error('Backend returned an unexpected response. Check the server logs.'); }
 
-      if (response.status === 413 || (data.error && data.error.includes("Memory"))) {
-        alert("The server is out of memory. Try searching by Barcode (GTIN) instead.");
+      if (response.status === 422 && data.message === 'barcode_not_found') {
+        setScanStage('ingredients');
+        setCapturedImage(null);
+        setAnalysisResult(null);
+        setProductName('');
+        setActiveTab('scanner');
+        alert('No barcode detected. Make sure the barcode is clearly visible and well-lit.\n\nSwitching to Label Scan mode — photograph the ingredients list and enter the product name.');
+      } else if (response.status === 200 && data.status === 'partial') {
+        alert(`Barcode detected (${data.gtin}) but no product data found in any database.\n\nTry the Label Scan instead.`);
       } else if (!response.ok) {
-        throw new Error(data.error || "Analysis failed");
+        throw new Error(data.error || data.message || 'Analysis failed');
       } else {
         setAnalysisResult(data);
         setShowReveal(true);
       }
     } catch (error) {
-      console.error("Analysis Error:", error);
-      alert(error.message || "Failed to connect to the backend server.");
+      console.error('Analysis Error:', error);
+      alert(error.message || 'Failed to connect to the backend server.');
     } finally {
       setIsAnalyzing(false);
-      setAnalysisStatus("");
+      setAnalysisStatus('');
       statusTimers.forEach(clearTimeout);
     }
   };
@@ -851,15 +898,33 @@ export default function Home() {
             {/* SCREEN 2: SCANNER */}
             {activeTab === 'scanner' && (
               <div className="flex-1 flex flex-col pb-24 px-6 pt-6">
-                <div className="flex justify-between items-center mb-6">
-                  <div>
-                    <p className="font-black text-slate-900 text-xl tracking-tight">Product Label Scan</p>
-                    <p className="text-slate-400 text-xs font-bold mt-1">ALIGN CLEARLY FOR ACCURACY</p>
-                  </div>
+                {/* Mode toggle tabs */}
+                <div className="flex gap-2 mb-5 bg-slate-100 p-1 rounded-2xl">
+                  <button
+                    onClick={() => { setScanStage('barcode'); setCapturedImage(null); setProductName(''); }}
+                    className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${scanStage === 'barcode' ? 'bg-[#3a3f85] text-white shadow-lg' : 'text-slate-400'
+                      }`}
+                  >📦 Barcode Scan</button>
+                  <button
+                    onClick={() => { setScanStage('ingredients'); setCapturedImage(null); setProductName(''); }}
+                    className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${scanStage === 'ingredients' ? 'bg-orange-500 text-white shadow-lg' : 'text-slate-400'
+                      }`}
+                  >🇮🇳 Label Scan</button>
+                </div>
+
+                {/* Mode hint */}
+                <div className={`mb-4 p-3 rounded-2xl text-xs font-bold leading-relaxed ${scanStage === 'barcode'
+                    ? 'bg-blue-50 text-blue-700 border border-blue-100'
+                    : 'bg-orange-50 text-orange-700 border border-orange-100'
+                  }`}>
+                  {scanStage === 'barcode'
+                    ? '📸 Point camera at the barcode on the product packaging. Works best for products available globally.'
+                    : '🇮🇳 Indian product? Photo the ingredients + nutrition table, then type the product name below. We\'ll search FSSAI & Open Food Facts India.'}
                 </div>
 
                 <div className="flex-1 flex items-center justify-center">
-                  <div className="relative w-full aspect-[9/12] bg-slate-900 rounded-[40px] shadow-2xl p-1.5 ring-8 ring-slate-50 overflow-hidden group">
+                  <div className={`relative w-full aspect-[9/12] bg-slate-900 rounded-[40px] shadow-2xl p-1.5 ring-8 overflow-hidden group ${scanStage === 'ingredients' ? 'ring-orange-100' : 'ring-slate-50'
+                    }`}>
                     <canvas ref={canvasRef} className="hidden"></canvas>
                     <div className="relative h-full w-full bg-slate-800 rounded-[34px] overflow-hidden flex items-center justify-center border border-white/10">
                       {!capturedImage ? (
@@ -868,51 +933,73 @@ export default function Home() {
                         <img src={capturedImage} alt="Captured Product Label" className="object-cover w-full h-full" />
                       )}
 
+                      {/* Scan overlay guide */}
+                      {!capturedImage && scanStage === 'barcode' && (
+                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                          <div className="w-3/4 h-24 border-4 border-white/50 rounded-2xl" style={{ boxShadow: '0 0 0 9999px rgba(0,0,0,0.35)' }}></div>
+                        </div>
+                      )}
+
                       <div className="absolute bottom-8 left-0 right-0 flex justify-center gap-4 z-20 px-8">
                         {capturedImage ? (
-                          <button
-                            onClick={retakePhoto}
-                            className="flex-1 h-14 bg-white/20 backdrop-blur-md border border-white/40 text-white text-xs font-black rounded-2xl shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2"
-                          >
+                          <button onClick={retakePhoto} className="flex-1 h-14 bg-white/20 backdrop-blur-md border border-white/40 text-white text-xs font-black rounded-2xl shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2">
                             <span>↺</span> RETAKE
                           </button>
                         ) : (
-                          <button
-                            onClick={takePhoto}
-                            className="w-20 h-20 bg-white rounded-full shadow-2xl active:scale-90 transition-all flex items-center justify-center border-8 border-white/20"
-                          >
+                          <button onClick={takePhoto} className="w-20 h-20 bg-white rounded-full shadow-2xl active:scale-90 transition-all flex items-center justify-center border-8 border-white/20">
                             <div className="w-12 h-12 rounded-full border-4 border-slate-900"></div>
                           </button>
                         )}
                       </div>
                       {!capturedImage && (
-                        <button
-                          onClick={triggerFileUpload}
-                          className="absolute top-6 right-6 w-12 h-12 bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl flex items-center justify-center text-white text-xl shadow-xl active:scale-90 transition-all"
-                        >
-                          📁
-                        </button>
+                        <button onClick={triggerFileUpload} className="absolute top-6 right-6 w-12 h-12 bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl flex items-center justify-center text-white text-xl shadow-xl active:scale-90 transition-all">📁</button>
                       )}
                     </div>
                   </div>
                 </div>
 
-                <div className="pb-8 mt-10">
+                {/* Label scan: product name input */}
+                {scanStage === 'ingredients' && (
+                  <div className="mt-4 space-y-2">
+                    <label className="text-[10px] font-black text-orange-600 uppercase tracking-widest">Product Name (required)</label>
+                    <input
+                      type="text"
+                      value={productName}
+                      onChange={(e) => setProductName(e.target.value)}
+                      placeholder="e.g. Maggi Noodles, Parle-G, Kurkure Masala"
+                      className="w-full px-4 py-3 rounded-2xl border-2 border-orange-200 bg-white text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-400/60 focus:border-transparent"
+                    />
+                    <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
+                      Tip: Include brand name for best results. E.g. &quot;Parle Magix Choco Cream&quot;
+                    </p>
+                  </div>
+                )}
+
+                <div className="pb-8 mt-4 space-y-3">
                   {isAnalyzing ? (
                     <div className="flex-1 flex flex-col items-center justify-center gap-3">
-                      <div className="h-16 w-full bg-slate-900 text-white rounded-2xl font-black flex items-center justify-center gap-3">
+                      <div className={`h-16 w-full text-white rounded-2xl font-black flex items-center justify-center gap-3 ${scanStage === 'ingredients' ? 'bg-orange-500' : 'bg-slate-900'
+                        }`}>
                         <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                        ANALYZING...
+                        {scanStage === 'ingredients' ? 'READING LABEL...' : 'SCANNING...'}
                       </div>
                       {analysisStatus && (
                         <p className="text-[10px] text-slate-500 font-black animate-pulse uppercase tracking-widest">{analysisStatus}</p>
                       )}
                     </div>
                   ) : capturedImage ? (
-                    <button onClick={handleAnalyzeClick} className="flex-1 h-16 bg-[#3a3f85] text-white rounded-2xl font-black shadow-lg shadow-blue-500/20 active:scale-98 transition-all uppercase tracking-widest">Generate Scan</button>
+                    <button
+                      onClick={handleAnalyzeClick}
+                      className={`flex-1 h-16 text-white rounded-2xl font-black shadow-lg active:scale-98 transition-all uppercase tracking-widest ${scanStage === 'ingredients'
+                          ? 'bg-orange-500 shadow-orange-200'
+                          : 'bg-[#3a3f85] shadow-blue-500/20'
+                        }`}
+                    >
+                      {scanStage === 'ingredients' ? '🇮🇳 Analyse Label' : 'Generate Scan'}
+                    </button>
                   ) : (
                     <div className="flex-1 h-16 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center text-slate-400 text-[10px] font-black uppercase tracking-widest">
-                      Position product label in frame
+                      {scanStage === 'barcode' ? 'Position barcode in frame' : 'Photo the ingredients / nutrition table'}
                     </div>
                   )}
                 </div>
@@ -934,7 +1021,7 @@ export default function Home() {
                         </div>
                         <h1 className="text-4xl font-black mb-1 leading-tight tracking-tighter uppercase">
                           {analysisResult.brand && <span className="text-white/60 block text-[10px] tracking-widest mb-1.5 font-black">{analysisResult.brand.toUpperCase()}</span>}
-                          {analysisResult.product_name || "Unknown Product"}
+                          {analysisResult.product_name || 'Unknown Product'}
                         </h1>
                         <p className="text-white/80 font-black uppercase tracking-[0.2em] text-[10px]">{cfg.label}</p>
                         <div className="mt-8 flex items-baseline gap-2">
@@ -942,10 +1029,35 @@ export default function Home() {
                           <span className="text-2xl font-bold text-white/40">/10</span>
                         </div>
                       </div>
+                      {/* Data quality badge */}
+                      {analysisResult.data_quality && (
+                        <div className="absolute top-4 right-4 bg-black/20 backdrop-blur px-2 py-1 rounded-full">
+                          <span className="text-[9px] font-black text-white/80 uppercase tracking-wider">
+                            {analysisResult.data_quality === 'api_verified' ? '✅ API Verified'
+                              : analysisResult.data_quality === 'fssai_partial' ? '🇮🇳 FSSAI'
+                                : '🔍 OCR Extracted'}
+                          </span>
+                        </div>
+                      )}
                       <div className="absolute -bottom-10 -right-10 w-48 h-48 bg-white/10 rounded-full blur-3xl"></div>
                     </div>
                   );
                 })()}
+
+                {/* ── Warnings banner (Indian label scan) ── */}
+                {analysisResult.warnings && analysisResult.warnings.length > 0 && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-[24px] p-5 mb-6">
+                    <p className="text-amber-700 font-black text-[10px] uppercase tracking-widest mb-3 flex items-center gap-2">⚠️ Health Alerts</p>
+                    <div className="space-y-2">
+                      {analysisResult.warnings.map((w, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <div className="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0"></div>
+                          <p className="text-amber-800 text-xs font-semibold">{w}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <NutritionSummary nutrition={analysisResult.nutrition} />
 
@@ -962,6 +1074,22 @@ export default function Home() {
                         <AdditiveCard key={i} additive={add} index={i} />
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {/* Data source note */}
+                {analysisResult.source && (
+                  <div className="bg-slate-50 rounded-2xl p-4 mb-6 border border-slate-100">
+                    <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">
+                      Source: {analysisResult.source === 'off_india' ? 'Open Food Facts India 🇮🇳'
+                        : analysisResult.source === 'off_world' ? 'Open Food Facts Global'
+                          : analysisResult.source === 'fssai' ? 'FSSAI FOSCOS Database 🇮🇳'
+                            : analysisResult.source === 'ocr_extracted' ? 'OCR Label Extraction'
+                              : analysisResult.source}
+                    </p>
+                    {analysisResult.fssai_license && (
+                      <p className="text-slate-500 text-[10px] font-bold mt-1">FSSAI License: {analysisResult.fssai_license}</p>
+                    )}
                   </div>
                 )}
 
