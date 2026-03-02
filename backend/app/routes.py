@@ -38,6 +38,7 @@ from app.services.health_scoring import HealthScoreEnsemble  # also used in prim
 from app.services.additives_expert import AdditivesExpert
 from app.services.ner_service import NERService
 from app.services.xai_service import XAIService
+from app import config as _config
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -239,6 +240,34 @@ def scan():
         "healthy_alternative": healthy_alt,
     }
 
+    # ── RAG side pipeline (non-intrusive, optional) ──────────────────
+    if getattr(_config, "RAG_ENABLED", False):
+        try:
+            from rag_pipeline import analyze_label_text as _rag_analyze
+            _ingredients_raw = " ".join(product.get("ingredients") or [])
+            _rag_result = _rag_analyze(
+                nutrition_text="",
+                ingredients_text=_ingredients_raw,
+                pre_parsed_nutrition={
+                    "calories": n100.get("energy_kcal"),
+                    "protein_g": n100.get("protein_g"),
+                    "fat_g": n100.get("fat_g"),
+                    "saturated_fat_g": n100.get("saturated_fat_g"),
+                    "trans_fat_g": n100.get("trans_fat_g"),
+                    "carbohydrates_g": n100.get("carbohydrates_g"),
+                    "sugars_g": n100.get("sugars_g"),
+                    "fiber_g": n100.get("fiber_g"),
+                    "sodium_mg": n100.get("sodium_mg"),
+                },
+            )
+            response_body["rag_analysis"] = _rag_result
+            logger.info(
+                "RAG analysis complete for GTIN %s — score=%.1f (%s)",
+                gtin, _rag_result.get("score", 0), _rag_result.get("score_grade", "?")
+            )
+        except Exception as _rag_exc:
+            logger.warning("RAG pipeline skipped (non-fatal): %s", _rag_exc)
+
     logger.info(
         "POST /api/scan — returning enriched product data for GTIN %s "
         "(source: %s, score: %s %s)",
@@ -324,7 +353,7 @@ def analyze():
         def fmt(val, unit="g"):
             return f"{val}{unit}" if val is not None else "N/A"
 
-        return jsonify({
+        result = {
             "product_name": "Product Scan Result (OCR)",
             "health_score": health_color,
             "score_value": round(health_score, 1),
@@ -342,7 +371,25 @@ def analyze():
             "healthy_alternative": (
                 "Fresh fruits or homemade organic snacks." if health_score < 6 else None
             ),
-        })
+        }
+
+        # ── RAG side pipeline (non-intrusive, optional) ──────────────────
+        if getattr(_config, "RAG_ENABLED", False):
+            try:
+                from rag_pipeline import analyze_label_text as _rag_analyze
+                _rag_result = _rag_analyze(
+                    nutrition_text=raw_text,
+                    ingredients_text=raw_text,
+                )
+                result["rag_analysis"] = _rag_result
+                logger.info(
+                    "RAG analysis (legacy /analyze) complete — score=%.1f (%s)",
+                    _rag_result.get("score", 0), _rag_result.get("score_grade", "?")
+                )
+            except Exception as _rag_exc:
+                logger.warning("RAG pipeline skipped (non-fatal): %s", _rag_exc)
+
+        return jsonify(result)
 
     except Exception as exc:
         logger.error("Legacy pipeline error: %s", exc, exc_info=True)
