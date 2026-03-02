@@ -1,0 +1,20 @@
+# RAG Pipeline — additional dependencies
+# Install: pip install -r rag_pipeline/requirements.txt
+#
+# Core backend deps (Flask, numpy, etc.) are already in ../requirements.txt
+# Only NEW dependencies needed for the RAG side pipeline are listed here.
+
+# Fuzzy string matching for OCR typo correction (e.g. "E62l" → "E621")
+rapidfuzz==3.6.1
+
+# Semantic retrieval (sentence embeddings for FAISS)
+# Uses all-MiniLM-L6-v2 (~90MB, runs on CPU, <1s on first encode)
+sentence-transformers==2.7.0
+
+# FAISS CPU-only vector index
+# NOTE: If you already have faiss-gpu installed, remove this line.
+faiss-cpu==1.8.0
+
+# Pydantic v2 — output schema validation
+# (already used by some backends; safe to add)
+pydantic==2.5.0

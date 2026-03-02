@@ -1,4 +1,5 @@
 import os
+
 from pathlib import Path
 
 
@@ -24,4 +25,9 @@ NUTRITION_NER_MODEL_DIR = os.path.join(MODEL_DIR, "nutrition_ner")
 
 # Optional: OCR-related models directory (if you want to keep them off C:)
 OCR_MODELS_DIR = os.path.join(MODEL_DIR, "ocr_models")
+
+# ── RAG side pipeline ─────────────────────────────────────────────────────────
+# Set RAG_ENABLED=true in environment to activate the offline RAG analysis.
+# Default: disabled — zero performance impact on the primary barcode pipeline.
+RAG_ENABLED = os.getenv("RAG_ENABLED", "false").lower() == "true"
 

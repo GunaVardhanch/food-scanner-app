@@ -1,0 +1,173 @@
+{
+    "_reference": "FSSAI Food Safety and Standards (Labelling and Display) Regulations 2020 — Schedule I",
+    "_note": "RDA values based on 2000 kcal reference diet for Indian adults",
+    "daily_reference_values": {
+        "energy_kcal": 2000,
+        "protein_g": 50,
+        "total_carbohydrates_g": 300,
+        "total_fat_g": 67,
+        "saturated_fat_g": 20,
+        "trans_fat_g": 2,
+        "cholesterol_mg": 300,
+        "total_sugars_g": 25,
+        "added_sugars_g": 25,
+        "dietary_fiber_g": 25,
+        "sodium_mg": 2000,
+        "potassium_mg": 3500,
+        "calcium_mg": 1000,
+        "iron_mg": 17,
+        "zinc_mg": 12,
+        "vitamin_c_mg": 40,
+        "vitamin_a_mcg_re": 600,
+        "vitamin_d_mcg": 10,
+        "vitamin_b12_mcg": 1,
+        "folate_mcg": 200,
+        "thiamine_mg": 1.2,
+        "riboflavin_mg": 1.4,
+        "niacin_mg": 16,
+        "iodine_mcg": 150
+    },
+    "fssai_traffic_light_thresholds_per_100g": {
+        "_comment": "Based on FSSAI Draft Front of Pack Labelling (FOPL) regulations",
+        "energy_kcal": {
+            "low": 40,
+            "medium": 200,
+            "high": 400
+        },
+        "total_fat_g": {
+            "low": 3,
+            "medium": 10,
+            "high": 17.5
+        },
+        "saturated_fat_g": {
+            "low": 1.5,
+            "medium": 3,
+            "high": 5
+        },
+        "trans_fat_g": {
+            "low": 0.1,
+            "medium": 0.5,
+            "high": 1.0
+        },
+        "total_sugars_g": {
+            "low": 5,
+            "medium": 12.5,
+            "high": 22.5
+        },
+        "sodium_mg": {
+            "low": 120,
+            "medium": 400,
+            "high": 600
+        }
+    },
+    "score_deductions": {
+        "_comment": "Points subtracted from base score of 10 per 100g",
+        "sugar_above_22g": 3.0,
+        "sugar_above_12g": 1.5,
+        "sodium_above_600mg": 2.5,
+        "sodium_above_400mg": 1.0,
+        "trans_fat_above_1g": 4.0,
+        "trans_fat_above_0.2g": 2.0,
+        "saturated_fat_above_5g": 2.0,
+        "total_fat_above_17g": 1.5,
+        "calories_above_400kcal": 1.5,
+        "high_risk_additive_each": 2.0,
+        "moderate_risk_additive_each": 0.75,
+        "ultra_processed_marker_each": 0.25,
+        "banned_additive_each": 3.0,
+        "allergen_present": 0.5
+    },
+    "score_additions": {
+        "_comment": "Points added back for beneficial nutrients",
+        "protein_above_10g": 1.0,
+        "fiber_above_3g": 1.0,
+        "fiber_above_6g": 2.0,
+        "low_sugar_below_5g": 0.5,
+        "low_sodium_below_120mg": 0.5,
+        "no_additives": 1.0
+    },
+    "score_to_grade_map": {
+        "GREEN": {
+            "min": 7.0,
+            "max": 10.0,
+            "label": "Healthy Choice",
+            "color": "#4CAF50"
+        },
+        "YELLOW": {
+            "min": 4.0,
+            "max": 6.9,
+            "label": "Moderate — Consume in Moderation",
+            "color": "#FF9800"
+        },
+        "RED": {
+            "min": 0.0,
+            "max": 3.9,
+            "label": "Unhealthy — Limit Consumption",
+            "color": "#F44336"
+        }
+    },
+    "Indian_product_categories": {
+        "namkeen_snacks": {
+            "sodium_concern": true,
+            "fat_concern": true,
+            "typical_score_range": [
+                3,
+                6
+            ]
+        },
+        "biscuits_cookies": {
+            "sugar_concern": true,
+            "maida_concern": true,
+            "typical_score_range": [
+                3,
+                5
+            ]
+        },
+        "instant_noodles": {
+            "sodium_concern": true,
+            "tbhq_concern": true,
+            "typical_score_range": [
+                2,
+                4
+            ]
+        },
+        "dairy_products": {
+            "saturated_fat_concern": true,
+            "typical_score_range": [
+                5,
+                8
+            ]
+        },
+        "beverages_carbonated": {
+            "sugar_concern": true,
+            "phosphoric_acid_concern": true,
+            "typical_score_range": [
+                1,
+                4
+            ]
+        },
+        "breakfast_cereals": {
+            "sugar_concern": true,
+            "typical_score_range": [
+                4,
+                7
+            ]
+        },
+        "pickles_condiments": {
+            "sodium_concern": true,
+            "preservative_concern": true,
+            "typical_score_range": [
+                3,
+                6
+            ]
+        },
+        "chips_fried_snacks": {
+            "fat_concern": true,
+            "acrylamide_concern": true,
+            "typical_score_range": [
+                2,
+                5
+            ]
+        }
+    }
+}
