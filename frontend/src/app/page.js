@@ -1,1143 +1,724 @@
 "use client";
 
-import { useState, useRef, useEffect } from 'react';
-import { useTranslation } from 'react-i18next';
-import '../i18n';
+import { useState, useRef, useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import "../i18n";
+import SplashScreen from "./components/SplashScreen";
+import WelcomeScreen from "./components/WelcomeScreen";
+import HistoryFeed from "./components/HistoryFeed";
+import TrendsView from "./components/TrendsView";
 
-const API_BASE_URL = typeof process.env.NEXT_PUBLIC_API_URL === 'string'
-  ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '')
-  : 'http://127.0.0.1:7860';
+const API = typeof process.env.NEXT_PUBLIC_API_URL === "string"
+  ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "")
+  : "http://127.0.0.1:7860";
 
-// --- ICONS ---
-const UserIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-10 h-10 text-gray-700">
-    <path fillRule="evenodd" d="M18.685 19.097A9.723 9.723 0 0021.75 12c0-5.385-4.365-9.75-9.75-9.75S2.25 6.615 2.25 12a9.723 9.723 0 003.065 7.097A9.716 9.716 0 0012 21.75a9.716 9.716 0 006.685-2.653zm-12.54-1.285A7.486 7.486 0 0112 15a7.486 7.486 0 015.855 2.812A8.224 8.224 0 0112 20.25a8.224 8.224 0 01-5.855-2.438zM15.75 9a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" clipRule="evenodd" />
-  </svg>
-);
-
-const UserIconSmall = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-10 h-10 text-gray-700">
-    <path fillRule="evenodd" d="M18.685 19.097A9.723 9.723 0 0021.75 12c0-5.385-4.365-9.75-9.75-9.75S2.25 6.615 2.25 12a9.723 9.723 0 003.065 7.097A9.716 9.716 0 0012 21.75a9.716 9.716 0 006.685-2.653zm-12.54-1.285A7.486 7.486 0 0112 15a7.486 7.486 0 015.855 2.812A8.224 8.224 0 0112 20.25a8.224 8.224 0 01-5.855-2.438zM15.75 9a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" clipRule="evenodd" />
-  </svg>
-);
-
-// --- CONFETTI COMPONENT ---
-const Confetti = ({ active }) => {
-  const canvasRef = useRef(null);
-  useEffect(() => {
-    if (!active) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
-    const pieces = Array.from({ length: 120 }, () => ({
-      x: Math.random() * canvas.width,
-      y: Math.random() * canvas.height - canvas.height,
-      r: Math.random() * 8 + 4,
-      color: ['#00c55e', '#ffd624', '#3a3f85', '#ff6b6b', '#00d4ff', '#ff9f43'][Math.floor(Math.random() * 6)],
-      speed: Math.random() * 4 + 2,
-      swing: Math.random() * 3 - 1.5,
-      angle: Math.random() * 360,
-      spin: Math.random() * 5 - 2.5,
-    }));
-    let frame;
-    const draw = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      pieces.forEach(p => {
-        ctx.save();
-        ctx.translate(p.x, p.y);
-        ctx.rotate(p.angle * Math.PI / 180);
-        ctx.fillStyle = p.color;
-        ctx.fillRect(-p.r / 2, -p.r / 2, p.r, p.r * 2);
-        ctx.restore();
-        p.y += p.speed;
-        p.x += p.swing;
-        p.angle += p.spin;
-        if (p.y > canvas.height) { p.y = -20; p.x = Math.random() * canvas.width; }
-      });
-      frame = requestAnimationFrame(draw);
-    };
-    draw();
-    const timeout = setTimeout(() => cancelAnimationFrame(frame), 4000);
-    return () => { cancelAnimationFrame(frame); clearTimeout(timeout); };
-  }, [active]);
-
-  if (!active) return null;
-  return <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none z-50" />;
+// ── Small helpers ──────────────────────────────────────────────────────────────
+const scoreConfig = {
+  RED: { bg: "bg-gradient-to-br from-red-500 to-rose-700", label: "HARMFUL", emoji: "🚨", badge: "bg-red-100 text-red-700", glow: "0 0 40px rgba(239,68,68,0.5)" },
+  YELLOW: { bg: "bg-gradient-to-br from-yellow-400 to-amber-500", label: "MODERATE", emoji: "⚠️", badge: "bg-yellow-100 text-yellow-800", glow: "0 0 40px rgba(234,179,8,0.5)" },
+  GREEN: { bg: "bg-gradient-to-br from-emerald-400 to-green-600", label: "HEALTHY", emoji: "✅", badge: "bg-green-100 text-green-800", glow: "0 0 40px rgba(16,185,129,0.5)" },
 };
 
-// --- SCORE REVEAL COMPONENT ---
-const ScoreReveal = ({ result, onDone }) => {
-  const { t } = useTranslation();
-  const [phase, setPhase] = useState('initial'); // initial → nutrition → additives → score
-  const [displayNum, setDisplayNum] = useState(0);
-
-  const score = result.health_score || 'YELLOW';
-  const specificScore = result.score_value;
-  const nutrition = result.nutrition || {};
-  const coloring = result.coloring_agents || [];
-
-  const scoreConfig = {
-    RED: { label: 'RED — HARMFUL', color: 'from-red-500 to-red-700', glow: 'score-glow-red', emoji: '🚨' },
-    YELLOW: { label: 'YELLOW — MODERATE', color: 'from-yellow-400 to-orange-500', glow: 'score-glow-yellow', emoji: '⚠️' },
-    GREEN: { label: 'GREEN — HEALTHY', color: 'from-green-400 to-emerald-600', glow: 'score-glow-green', emoji: '✅' },
-  };
-  const cfg = scoreConfig[score] || scoreConfig['YELLOW'];
-  const finalNum = specificScore !== undefined ? specificScore : (score === 'RED' ? 2 : score === 'GREEN' ? 9 : 5);
-
-  useEffect(() => {
-    // Automated phase transitions
-    const timers = [
-      setTimeout(() => setPhase('nutrition'), 1500),
-      setTimeout(() => setPhase('additives'), 4000),
-      setTimeout(() => setPhase('score'), 6500)
-    ];
-    return () => timers.forEach(clearTimeout);
-  }, []);
-
-  useEffect(() => {
-    if (phase !== 'score') return;
-    let count = 0;
-    const interval = setInterval(() => {
-      count++;
-      setDisplayNum(Math.floor(Math.random() * 10));
-      if (count > 20) {
-        clearInterval(interval);
-        setDisplayNum(finalNum);
-        setTimeout(onDone, 2500);
-      }
-    }, 60);
-    return () => clearInterval(interval);
-  }, [phase, finalNum]);
-
-  return (
-    <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-2xl flex flex-col items-center justify-center z-50 p-6 overflow-hidden">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full blur-[150px] opacity-10 ${cfg.color}`}></div>
-      </div>
-
-      {phase === 'initial' && (
-        <div className="animate-reveal-pop text-center">
-          <div className="w-20 h-20 border-4 border-white/20 border-t-white rounded-full animate-spin mx-auto mb-6"></div>
-          <p className="text-white font-black tracking-widest uppercase text-xs animate-pulse">Initializing Neural Analysis...</p>
-        </div>
-      )}
-
-      {phase !== 'initial' && (
-        <div className="absolute top-12 left-0 right-0 text-center px-6 animate-reveal-pop">
-          <p className="text-white/40 font-black uppercase tracking-[0.3em] text-[9px] mb-1">Identity Confirmed</p>
-          <h3 className="text-white font-black text-lg uppercase tracking-tight">
-            {result.brand && <span className="opacity-60">{result.brand.split(',')[0]} — </span>}
-            {result.product_name || "Unknown Product"}
-          </h3>
-        </div>
-      )}
-
-      {phase === 'nutrition' && (
-        <div className="w-full max-w-sm animate-reveal-pop">
-          <p className="text-emerald-400 font-black tracking-widest uppercase text-[10px] mb-2 text-center">Discovery 01: Nutritional Density</p>
-          <h2 className="text-white text-3xl font-black text-center mb-8">Nutritional Profile</h2>
-          <div className="grid grid-cols-2 gap-4">
-            {[
-              { label: 'SUGAR', val: nutrition.sugar, col: 'text-red-400' },
-              { label: 'FAT', val: nutrition.total_fat, col: 'text-orange-400' },
-              { label: 'CARBS', val: nutrition.carbs, col: 'text-blue-400' },
-              { label: 'CALORIES', val: nutrition.calories, col: 'text-white' }
-            ].map((n, i) => (
-              <div key={i} className="bg-white/5 border border-white/10 rounded-3xl p-6 backdrop-blur-md">
-                <p className="text-slate-500 text-[9px] font-black uppercase tracking-widest mb-1">{n.label}</p>
-                <p className={`text-2xl font-black ${n.col}`}>{n.val}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {phase === 'additives' && (
-        <div className="w-full max-w-sm animate-reveal-pop">
-          <p className="text-amber-400 font-black tracking-widest uppercase text-[10px] mb-2 text-center">Discovery 02: Chemical Signature</p>
-          <h2 className="text-white text-3xl font-black text-center mb-6">Detected Additives</h2>
-
-          <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
-            {coloring.length > 0 && (
-              <div className="bg-rose-500/20 border border-rose-500/30 rounded-2xl p-4 mb-4">
-                <p className="text-rose-400 font-black text-[9px] uppercase tracking-widest mb-2 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span> Coloring Agents Detected
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {coloring.map((c, i) => (
-                    <span key={i} className="bg-rose-500 text-white text-[10px] font-black px-2.5 py-1 rounded-lg uppercase">{c.name}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {result.additives && result.additives.length > 0 ? (
-              result.additives.map((a, i) => (
-                <div key={i} className="bg-white/5 border border-white/10 rounded-2xl p-4 flex justify-between items-center">
-                  <p className="text-white/80 font-black text-xs">{a.name}</p>
-                  <span className={`text-[8px] font-black px-2 py-0.5 rounded-full uppercase ${a.risk_level === 'RED' ? 'bg-red-500' : 'bg-slate-700'}`}>{a.risk_level}</span>
-                </div>
-              ))
-            ) : (
-              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-6 text-center">
-                <p className="text-emerald-400 font-black text-sm uppercase">Clean Label: No additives found</p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {phase === 'score' && (
-        <div className="flex flex-col items-center animate-reveal-pop">
-          <p className="text-[#6c63ff] font-black tracking-widest uppercase text-[10px] mb-8 animate-pulse text-center">Final Consensus Reached</p>
-          <div className={`w-64 h-64 rounded-full bg-gradient-to-br ${cfg.color} ${cfg.glow} flex flex-col items-center justify-center reveal-animation transition-all duration-700 relative z-10 border-8 border-white/20 shadow-2xl`}>
-            <span className="text-9xl font-black text-white drop-shadow-2xl">{displayNum}</span>
-            <span className="text-white/70 text-[10px] font-black tracking-widest uppercase mt-1">Health Score</span>
-          </div>
-          <div className="mt-10 text-center relative z-10 animate-reveal-pop delay-1000">
-            <span className="text-5xl">{cfg.emoji}</span>
-            <p className="text-3xl font-black mt-4 text-white uppercase tracking-tight">{cfg.label}</p>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// --- ADDITIVE CARD COMPONENT ---
-const AdditiveCard = ({ additive, index }) => {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => setVisible(true), index * 150);
-    return () => clearTimeout(t);
-  }, [index]);
-
-  const riskColors = {
-    RED: 'bg-red-500 text-white shadow-red-200',
-    ORANGE: 'bg-orange-400 text-white shadow-orange-200',
-    YELLOW: 'bg-yellow-400 text-gray-900 shadow-yellow-100',
-  };
-
-  const riskBadge = {
-    RED: 'bg-red-100 text-red-700',
-    ORANGE: 'bg-orange-100 text-orange-700',
-    YELLOW: 'bg-yellow-100 text-yellow-700',
-  };
-
-  const risk = additive.risk_level || 'YELLOW';
-
-  return (
-    <div className={`${visible ? 'premium-card-entry' : 'opacity-0'}`}>
-      <div className="glass-morphism rounded-3xl p-5 shadow-sm flex gap-4 items-start group hover:shadow-md transition-all duration-300 border-white/50">
-        <div className={`w-12 h-12 rounded-2xl ${riskColors[risk]} flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform`}>
-          <span className="text-xl">{risk === 'RED' ? '🚫' : risk === 'ORANGE' ? '⚠️' : '🔍'}</span>
-        </div>
-        <div className="flex-1">
-          <div className="flex justify-between items-start mb-1">
-            <p className="font-black text-slate-900 text-sm tracking-wide">{additive.name}</p>
-            <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase ${riskBadge[risk]}`}>{risk}</span>
-          </div>
-          <p className="text-slate-500 text-xs leading-relaxed font-medium">{additive.reason}</p>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-
-// --- XAI EXPLANATION COMPONENT ---
-const XAIExplanation = ({ xaiData, imageUrl, productName }) => {
-  const { t } = useTranslation();
-  const [showHeatmap, setShowHeatmap] = useState(false);
-
-  if (!xaiData) return null;
-
-  const impacts = xaiData.shap_impacts || {};
-
-  return (
-    <div className="bg-slate-900 rounded-3xl p-6 text-white mb-6 border border-slate-700 shadow-2xl animate-fade-in relative overflow-hidden">
-      <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full translate-x-10 -translate-y-10"></div>
-
-      <div className="flex justify-between items-center mb-6 relative z-10">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400">📊</div>
-          <p className="font-black text-sm uppercase tracking-widest">Factors Analysis — {productName || "Detected Product"}</p>
-        </div>
-        <div className="flex gap-2">
-          <span className="bg-white/5 border border-white/10 px-2 py-1 rounded-md text-[9px] font-black text-slate-400 uppercase">XGBoost</span>
-          <span className="bg-white/5 border border-white/10 px-2 py-1 rounded-md text-[9px] font-black text-slate-400 uppercase">SHAP</span>
-        </div>
-      </div>
-
-      {/* SHAP IMPACTS */}
-      <div className="bg-white/5 rounded-2xl p-4 mb-6 relative z-10 border border-white/5">
-        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Feature Impact Analysis</p>
-        <div className="space-y-5">
-          {Object.entries(impacts).map(([feature, impact], i) => (
-            <div key={i} className="relative">
-              <div className="flex justify-between items-end mb-1.5">
-                <span className="text-[11px] font-bold text-slate-300">{feature}</span>
-                <span className={`text-[10px] font-black font-mono ${impact < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                  {impact > 0 ? '+' : ''}{impact.toFixed(1)}
-                </span>
-              </div>
-              <div className="w-full h-2 bg-slate-800/50 rounded-full overflow-hidden flex">
-                <div className="flex-1 flex justify-end">
-                  {impact < 0 && (
-                    <div
-                      className="h-full bg-gradient-to-l from-rose-500 to-rose-400 rounded-l-full animate-grow-left"
-                      style={{ width: `${Math.min(Math.abs(impact) * 20, 100)}%` }}
-                    ></div>
-                  )}
-                </div>
-                <div className="w-[1px] h-full bg-white/20 z-10"></div>
-                <div className="flex-1">
-                  {impact > 0 && (
-                    <div
-                      className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-r-full animate-grow-right"
-                      style={{ width: `${Math.min(impact * 20, 100)}%` }}
-                    ></div>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* GRAD-CAM TOGGLE */}
-      <div className="relative z-10">
-        <button
-          onClick={() => setShowHeatmap(!showHeatmap)}
-          className="w-full py-3 bg-white/5 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition-colors flex items-center justify-center gap-2"
-        >
-          {showHeatmap ? '👁️ Hide Model Focus' : '🎯 View Model Focus (Grad-CAM)'}
-        </button>
-
-        {showHeatmap && (
-          <div className="mt-4 rounded-2xl overflow-hidden relative aspect-video border border-white/10 animate-fade-in">
-            <img src={imageUrl || "https://via.placeholder.com/400x200?text=Heatmap+Image"} className="w-full h-full object-cover grayscale opacity-40" alt="Heatmap base" />
-            <div className="absolute inset-0 bg-gradient-to-br from-blue-500/40 via-yellow-500/40 to-red-500/40 mix-blend-overlay"></div>
-            <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
-              <div className="w-32 h-32 rounded-full border-2 border-dashed border-white/40 animate-ping absolute"></div>
-              <p className="text-[10px] font-black uppercase tracking-tighter text-white drop-shadow-lg">Detection Region: Nutrition Table</p>
-              <p className="text-[9px] text-white/60 mt-1 italic">Confident: 98.4%</p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="mt-8 pt-6 border-t border-white/5 flex justify-between items-center relative z-10">
-        <div className="flex flex-col">
-          <p className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter">Model Confidence</p>
-          <div className="flex gap-1 mt-1">
-            {[1, 2, 3, 4, 5].map(s => <div key={s} className={`w-3 h-1 rounded-full ${s <= 4 ? 'bg-emerald-500' : 'bg-slate-700'}`}></div>)}
-          </div>
-        </div>
-        <p className="text-[10px] text-slate-400 font-medium">
-          SHAP-Explainable v2.1
-        </p>
-      </div>
-    </div>
-  );
-};
-
-// --- NUTRITION SUMMARY COMPONENT ---
-const NutritionSummary = ({ nutrition }) => {
+// ── NutritionCard ──────────────────────────────────────────────────────────────
+const NutritionCard = ({ nutrition }) => {
   if (!nutrition) return null;
   const items = [
-    { label: 'CALORIES', value: nutrition.calories || '--', color: 'text-slate-900' },
-    { label: 'PROTEIN', value: nutrition.protein || '--', color: 'text-emerald-600' },
-    { label: 'FAT', value: nutrition.total_fat || '--', color: 'text-orange-500' },
-    { label: 'SUGAR', value: nutrition.sugar || '--', color: 'text-red-500' },
+    { label: "Calories", val: nutrition.calories || "N/A", color: "text-slate-900" },
+    { label: "Protein", val: nutrition.protein || "N/A", color: "text-emerald-600" },
+    { label: "Fat", val: nutrition.total_fat || "N/A", color: "text-orange-500" },
+    { label: "Sugar", val: nutrition.sugar || "N/A", color: "text-red-500" },
+    { label: "Carbs", val: nutrition.carbs || "N/A", color: "text-blue-500" },
+    { label: "Sodium", val: nutrition.sodium || "N/A", color: "text-purple-500" },
   ];
-
   return (
-    <div className="grid grid-cols-4 gap-2 mb-6">
-      {items.map((item, i) => (
-        <div key={i} className="bg-white rounded-xl p-2 border border-slate-100 shadow-sm text-center">
-          <p className="text-[9px] font-black text-slate-400 mb-0.5">{item.label}</p>
-          <p className={`text-xs font-black ${item.color}`}>{item.value}</p>
+    <div className="grid grid-cols-3 gap-2 mb-6">
+      {items.map((it, i) => (
+        <div key={i} className="bg-white rounded-2xl p-3 border border-slate-100 shadow-sm text-center">
+          <p className="text-[9px] font-black text-slate-400 mb-0.5 uppercase tracking-wide">{it.label}</p>
+          <p className={`text-sm font-black ${it.color}`}>{it.val}</p>
         </div>
       ))}
     </div>
   );
 };
 
-// --- HISTORY FEED COMPONENT ---
-const HistoryFeed = () => {
-  const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(true);
+// ── ScoreReveal overlay ────────────────────────────────────────────────────────
+const ScoreReveal = ({ result, onDone }) => {
+  const [phase, setPhase] = useState("initial"); // initial→nutrition→additives→score
+  const [displayNum, setDisplayNum] = useState(0);
+  const score = result.health_score || "YELLOW";
+  const cfg = scoreConfig[score] || scoreConfig.YELLOW;
+  const finalNum = result.score_value ?? (score === "RED" ? 2 : score === "GREEN" ? 9 : 5);
+  const nutrition = result.nutrition || {};
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/history`)
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) {
-          setHistory(data);
-        } else {
-          setHistory([]);
-        }
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    const ts = [
+      setTimeout(() => setPhase("nutrition"), 1200),
+      setTimeout(() => setPhase("additives"), 3800),
+      setTimeout(() => setPhase("score"), 6000),
+    ];
+    return () => ts.forEach(clearTimeout);
   }, []);
 
-  if (loading) return <div className="p-10 text-center animate-pulse text-gray-400 font-bold uppercase tracking-widest text-xs">Loading History...</div>;
-  if (history.length === 0) return (
-    <div className="bg-white rounded-3xl p-8 text-center border-2 border-dashed border-slate-200">
-      <p className="text-slate-400 text-sm font-semibold">No scans yet. Start capturing food labels!</p>
-    </div>
-  );
+  useEffect(() => {
+    if (phase !== "score") return;
+    let c = 0;
+    const iv = setInterval(() => {
+      c++;
+      setDisplayNum(Math.floor(Math.random() * 10));
+      if (c > 20) { clearInterval(iv); setDisplayNum(finalNum); setTimeout(onDone, 2200); }
+    }, 60);
+    return () => clearInterval(iv);
+  }, [phase, finalNum]);
 
   return (
-    <div className="space-y-3">
-      {history.map((item, i) => {
-        const scoreColors = {
-          RED: 'bg-red-500',
-          YELLOW: 'bg-yellow-400',
-          GREEN: 'bg-emerald-500'
-        };
-        return (
-          <div key={i} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center justify-between animate-fade-in group hover:border-slate-300 transition-all">
-            <div className="flex items-center gap-3">
-              <div className={`w-12 h-12 rounded-xl ${scoreColors[item.health_score] || 'bg-slate-200'} flex items-center justify-center text-white text-xl shadow-md`}>
-                {item.health_score === 'GREEN' ? '✅' : item.health_score === 'RED' ? '🚨' : '⚠️'}
+    <div className="fixed inset-0 bg-slate-950/97 backdrop-blur-2xl flex flex-col items-center justify-center z-50 p-6 overflow-hidden">
+      {phase === "initial" && (
+        <div className="text-center animate-reveal-pop">
+          <div className="w-20 h-20 border-4 border-white/20 border-t-emerald-400 rounded-full animate-spin mx-auto mb-6" />
+          <p className="text-white font-black tracking-widest uppercase text-xs animate-pulse">Processing with RAG Engine…</p>
+        </div>
+      )}
+      {phase !== "initial" && (
+        <div className="absolute top-10 left-0 right-0 text-center px-6">
+          <h3 className="text-white font-black text-lg uppercase tracking-tight">
+            {result.brand && <span className="opacity-50 text-sm mr-2">{result.brand} —</span>}
+            {result.product_name || "Unknown Product"}
+          </h3>
+        </div>
+      )}
+      {phase === "nutrition" && (
+        <div className="w-full max-w-sm animate-reveal-pop">
+          <p className="text-emerald-400 font-black tracking-widest uppercase text-[10px] mb-2 text-center">Discovery 01: Nutritional Profile</p>
+          <h2 className="text-white text-3xl font-black text-center mb-8">Nutrition Facts</h2>
+          <div className="grid grid-cols-2 gap-4">
+            {[
+              { label: "SUGAR", val: nutrition.sugar, col: "text-red-400" },
+              { label: "FAT", val: nutrition.total_fat, col: "text-orange-400" },
+              { label: "CARBS", val: nutrition.carbs, col: "text-blue-400" },
+              { label: "CALORIES", val: nutrition.calories, col: "text-white" },
+            ].map((n, i) => (
+              <div key={i} className="bg-white/5 border border-white/10 rounded-3xl p-6">
+                <p className="text-slate-500 text-[9px] font-black uppercase tracking-widest mb-1">{n.label}</p>
+                <p className={`text-2xl font-black ${n.col}`}>{n.val ?? "N/A"}</p>
               </div>
-              <div>
-                <p className="font-bold text-gray-900 text-sm uppercase tracking-tight">{item.product_name || "Unknown Product"}</p>
-                <p className="text-gray-400 text-[10px] font-bold mt-0.5">{item.timestamp}</p>
-              </div>
-            </div>
-            <div className="flex flex-col items-end">
-              <span className="text-[10px] font-black text-slate-300 uppercase italic">NutriScore</span>
-              <span className="text-xs font-black text-slate-800">{item.score_value || 0}/10</span>
-            </div>
+            ))}
           </div>
-        );
-      })}
+        </div>
+      )}
+      {phase === "additives" && (
+        <div className="w-full max-w-sm animate-reveal-pop">
+          <p className="text-amber-400 font-black tracking-widest uppercase text-[10px] mb-2 text-center">Discovery 02: Ingredient Check</p>
+          <h2 className="text-white text-3xl font-black text-center mb-6">Additives Found</h2>
+          <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-1">
+            {result.additives && result.additives.length > 0 ? (
+              result.additives.slice(0, 6).map((a, i) => (
+                <div key={i} className="bg-white/5 border border-white/10 rounded-2xl p-4 flex justify-between items-center">
+                  <p className="text-white/80 font-black text-xs">{a.name}</p>
+                  <span className={`text-[8px] font-black px-2 py-0.5 rounded-full uppercase ${a.risk_level === "RED" ? "bg-red-500 text-white" : "bg-slate-700 text-white"}`}>{a.risk_level}</span>
+                </div>
+              ))
+            ) : (
+              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-6 text-center">
+                <p className="text-emerald-400 font-black text-sm uppercase">✅ Clean Label — No harmful additives detected</p>
+              </div>
+            )}
+            {result.rag_analysis?.warnings?.length > 0 && (
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-3">
+                {result.rag_analysis.warnings.slice(0, 3).map((w, i) => (
+                  <p key={i} className="text-amber-300 text-[10px] font-bold">⚠ {w}</p>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {phase === "score" && (
+        <div className="flex flex-col items-center animate-reveal-pop">
+          <p className="text-[#6c63ff] font-black tracking-widest uppercase text-[10px] mb-8 animate-pulse">Final RAG Analysis Complete</p>
+          <div
+            className={`w-60 h-60 rounded-full bg-gradient-to-br ${cfg.bg.replace("bg-gradient-to-br ", "")} flex flex-col items-center justify-center border-8 border-white/20 shadow-2xl transition-all duration-700`}
+            style={{ boxShadow: cfg.glow }}
+          >
+            <span className="text-8xl font-black text-white drop-shadow-2xl">{displayNum}</span>
+            <span className="text-white/60 text-[10px] font-black tracking-widest uppercase mt-1">Health Score</span>
+          </div>
+          <div className="mt-8 text-center">
+            <span className="text-5xl">{cfg.emoji}</span>
+            <p className="text-3xl font-black mt-3 text-white uppercase tracking-tight">{cfg.label}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
-// --- SETTINGS VIEW COMPONENT ---
-const SettingsView = ({ preferences, onUpdate }) => {
-  const { t } = useTranslation();
+// ── SettingsView ───────────────────────────────────────────────────────────────
+const SettingsView = ({ preferences, onUpdate, currentUser, isGuest, onLogout }) => {
   const toggles = [
-    { id: 'vegan', label: t('vegan'), emoji: '🌱', desc: 'Flag any animal-derived ingredients' },
-    { id: 'no_sugar', label: t('no_sugar'), emoji: '🚫', desc: 'Strict alerts for sucrose and syrups' },
-    { id: 'low_sodium', label: t('low_sodium'), emoji: '🧂', desc: 'Flag products with high salt content' },
-    { id: 'gluten_free', label: t('gluten_free'), emoji: '🌾', desc: 'Alert for wheat, barley, or rye' },
+    { id: "vegan", label: "Vegan", emoji: "🌱", desc: "Flag animal-derived ingredients" },
+    { id: "no_sugar", label: "No Sugar", emoji: "🚫", desc: "Strict alerts for sucrose/syrups" },
+    { id: "low_sodium", label: "Low Sodium", emoji: "🧂", desc: "Flag high salt content" },
+    { id: "gluten_free", label: "Gluten Free", emoji: "🌾", desc: "Alert for wheat, barley, rye" },
   ];
-
   return (
     <div className="flex-1 px-5 pt-4 pb-24 overflow-y-auto">
-      <div className="mb-6">
-        <h2 className="text-2xl font-black text-gray-900 leading-tight">{t('preferences')}</h2>
+      {/* User card */}
+      <div className={`rounded-3xl p-5 mb-6 ${isGuest ? "bg-slate-100" : "bg-gradient-to-br from-[#3a3f85] to-[#6c63ff]"}`}>
+        <div className="flex items-center gap-4">
+          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl font-black shadow-inner ${isGuest ? "bg-slate-200 text-slate-500" : "bg-white/20 text-white"}`}>
+            {isGuest ? "👤" : (currentUser?.name?.[0]?.toUpperCase() || "U")}
+          </div>
+          <div>
+            <p className={`font-black text-base ${isGuest ? "text-slate-600" : "text-white"}`}>
+              {isGuest ? "Guest User" : currentUser?.name || "User"}
+            </p>
+            <p className={`text-xs mt-0.5 ${isGuest ? "text-slate-400" : "text-white/60"}`}>
+              {isGuest ? "Limited access — sign in to unlock all features" : currentUser?.email}
+            </p>
+          </div>
+        </div>
+        {!isGuest && (
+          <button onClick={onLogout}
+            className="mt-4 w-full py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-black rounded-2xl uppercase tracking-widest transition-all">
+            Sign Out
+          </button>
+        )}
       </div>
 
-      <div className="space-y-4">
-        {toggles.map((t) => (
-          <div key={t.id} className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm flex items-center justify-between group transition-all hover:shadow-md">
+      <h2 className="text-xl font-black text-gray-900 mb-4">Preferences</h2>
+      <div className="space-y-3">
+        {toggles.map(t => (
+          <div key={t.id} className={`bg-white rounded-3xl p-5 border border-slate-100 shadow-sm flex items-center justify-between transition-all ${isGuest ? "opacity-50 pointer-events-none" : ""}`}>
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-2xl shadow-inner">{t.emoji}</div>
+              <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-2xl">{t.emoji}</div>
               <div>
-                <p className="font-black text-gray-900 text-base">{t.label}</p>
+                <p className="font-black text-gray-900 text-sm">{t.label}</p>
                 <p className="text-gray-400 text-xs">{t.desc}</p>
               </div>
             </div>
             <button
-              onClick={() => onUpdate({ ...preferences, [t.id]: !preferences[t.id] })}
-              className={`w-14 h-8 rounded-full transition-all flex items-center px-1 ${preferences[t.id] ? 'bg-emerald-500 justify-end' : 'bg-slate-200 justify-start'}`}>
-              <div className="w-6 h-6 bg-white rounded-full shadow-md"></div>
+              onClick={() => !isGuest && onUpdate({ ...preferences, [t.id]: !preferences[t.id] })}
+              className={`w-14 h-8 rounded-full transition-all flex items-center px-1 ${preferences[t.id] ? "bg-emerald-500 justify-end" : "bg-slate-200 justify-start"}`}>
+              <div className="w-6 h-6 bg-white rounded-full shadow-md" />
             </button>
           </div>
         ))}
       </div>
-
-      <div className="mt-8 bg-[#3a3f85]/5 rounded-3xl p-6 border border-[#3a3f85]/10">
-        <p className="text-[#3a3f85] font-black text-sm uppercase tracking-widest mb-2">Pro Tip</p>
-        <p className="text-slate-600 text-xs leading-relaxed">Setting dietary preferences directly affects your NutriScore. The AI will prioritize your health choices during every scan.</p>
-      </div>
+      {isGuest && <p className="text-center text-slate-400 text-xs mt-4 italic">Sign in to save preferences</p>}
     </div>
   );
 };
 
-// --- TRENDS VIEW COMPONENT ---
-const TrendsView = ({ analytics }) => {
-  const { t } = useTranslation();
-  if (!analytics) return <div className="p-10 text-center animate-pulse text-gray-400 font-bold uppercase tracking-widest text-xs">CALCULATING INSIGHTS...</div>;
-
-  const maxScore = 10;
-  const trend = analytics.history_trend || [];
-
-  return (
-    <div className="flex-1 px-5 pt-4 pb-24 overflow-y-auto">
-      <div className="mb-6">
-        <h2 className="text-2xl font-black text-gray-900 leading-tight">{t('analytics')}</h2>
-      </div>
-
-      {/* Average Score Card */}
-      <div className="bg-gradient-to-br from-[#3a3f85] to-[#6c63ff] rounded-3xl p-6 text-white shadow-xl mb-6 relative overflow-hidden">
-        <div className="relative z-10">
-          <p className="text-white/70 font-black text-xs uppercase tracking-widest mb-1">Average Health Score</p>
-          <div className="flex items-baseline gap-2">
-            <span className="text-5xl font-black">{analytics.avg_score}</span>
-            <span className="text-xl font-bold text-white/50">/10</span>
-          </div>
-          <p className="text-white/80 text-xs mt-4 font-medium leading-relaxed italic">
-            "Your choices are improving! You're picking 15% cleaner products than last week."
-          </p>
-        </div>
-        <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full translate-x-10 -translate-y-10"></div>
-      </div>
-
-      {/* Mini Bar Chart */}
-      <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm mb-6">
-        <p className="font-black text-gray-900 text-sm uppercase tracking-widest mb-4">Score History</p>
-        <div className="flex items-end justify-between h-32 gap-1 px-2">
-          {trend.length > 0 ? trend.map((score, i) => (
-            <div key={i} className="flex-1 flex flex-col items-center group relative">
-              <div
-                className={`w-full rounded-t-lg transition-all duration-500 hover:opacity-80
-                  ${score >= 8 ? 'bg-emerald-500' : score >= 5 ? 'bg-yellow-400' : 'bg-red-500'}`}
-                style={{ height: `${(score / maxScore) * 100}%` }}
-              >
-                <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[10px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity">
-                  {score}
-                </div>
-              </div>
-            </div>
-          )) : (
-            <div className="w-full h-full flex items-center justify-center text-slate-300 text-xs italic">
-              Need more scans for trend data...
-            </div>
-          )}
-        </div>
-        <div className="flex justify-between mt-2 text-[8px] font-black text-slate-300 uppercase tracking-widest">
-          <span>Oldest</span>
-          <span>Latest Scans</span>
-        </div>
-      </div>
-
-      {/* Top Flagged Additives */}
-      <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm">
-        <p className="font-black text-gray-900 text-sm uppercase tracking-widest mb-4">Top Concerns</p>
-        <div className="space-y-3">
-          {analytics.top_additives && analytics.top_additives.length > 0 ? analytics.top_additives.map((item, i) => (
-            <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100">
-              <div className="flex items-center gap-3">
-                <span className="text-xl">{i === 0 ? '🚫' : '⚠️'}</span>
-                <p className="font-bold text-gray-800 text-xs">{item.name}</p>
-              </div>
-              <span className="bg-white px-3 py-1 rounded-full border border-slate-200 text-[10px] font-black text-slate-500">
-                {item.count} SCANS
-              </span>
-            </div>
-          )) : (
-            <p className="text-center text-slate-400 text-xs italic py-4">No recurring additives found yet.</p>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// --- MAIN APP ---
+// ── MAIN APP ───────────────────────────────────────────────────────────────────
 export default function Home() {
-  const { t, i18n } = useTranslation();
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const { i18n } = useTranslation();
+  const [appPhase, setAppPhase] = useState("splash"); // splash→welcome→app
+  const [currentUser, setCurrentUser] = useState(null);
+  const [token, setToken] = useState(undefined); // undefined = not yet resolved from localStorage
+  const [isGuest, setIsGuest] = useState(false);
+
+  const [activeTab, setActiveTab] = useState("dashboard");
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const fileInputRef = useRef(null);
   const [capturedImage, setCapturedImage] = useState(null);
-  const [scanStage, setScanStage] = useState('barcode'); // 'barcode' → 'ingredients'
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState(null);
   const [showReveal, setShowReveal] = useState(false);
-  const [showConfetti, setShowConfetti] = useState(false);
-  const [analytics, setAnalytics] = useState(null);
-  const workerRef = useRef(null);
-  const [edgeOcrText, setEdgeOcrText] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [suggestions, setSuggestions] = useState([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const fileInputRef = useRef(null);
-  const [productName, setProductName] = useState("");
-  const [preferences, setPreferences] = useState({
-    vegan: false,
-    no_sugar: false,
-    low_sodium: false,
-    gluten_free: false
-  });
+  const [analysisStatus, setAnalysisStatus] = useState("");
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [preferences, setPreferences] = useState({ vegan: false, no_sugar: false, low_sodium: false, gluten_free: false });
   const [mounted, setMounted] = useState(false);
+  const [scanMode, setScanMode] = useState("barcode"); // "barcode" | "label"
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  useEffect(() => { setMounted(true); }, []);
 
-  useEffect(() => {
-    if (!mounted) return;
-    try {
-      workerRef.current = new Worker(new URL('../utils/ocrWorker.js', import.meta.url), { type: 'module' });
-      workerRef.current.onmessage = (e) => {
-        if (e.data.type === 'INFERENCE_RESULT') {
-          setEdgeOcrText(e.data.text);
-        }
-      };
-      workerRef.current.postMessage({ type: 'LOAD' });
-    } catch (err) {
-      console.error("Worker init failed:", err);
-    }
-    return () => workerRef.current?.terminate();
-  }, [mounted]);
-
-  useEffect(() => {
-    if (activeTab !== 'scanner' || capturedImage) return;
-
-    const interval = setInterval(() => {
-      if (videoRef.current && canvasRef.current && workerRef.current) {
-        const video = videoRef.current;
-        const canvas = canvasRef.current;
-        const ctx = canvas.getContext('2d');
-        canvas.width = 224;
-        canvas.height = 224;
-        ctx.drawImage(video, 0, 0, 224, 224);
-        const imageData = ctx.getImageData(0, 0, 224, 224);
-        workerRef.current.postMessage({
-          type: 'INFER',
-          imageData: imageData.data.buffer
-        }, [imageData.data.buffer]);
-      }
-    }, 500);
-
-    return () => clearInterval(interval);
-  }, [activeTab, capturedImage]);
-
-  useEffect(() => {
-    if (!searchQuery || searchQuery.length < 3) {
-      setSuggestions([]);
-      return;
-    }
-    const delayDebounceFn = setTimeout(() => {
-      setIsSearching(true);
-      fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(searchQuery)}`)
-        .then(res => res.json())
-        .then(data => {
-          setSuggestions(data.products || []);
-          setIsSearching(false);
-        })
-        .catch(() => setIsSearching(false));
-    }, 500);
-    return () => clearTimeout(delayDebounceFn);
-  }, [searchQuery]);
-
-  useEffect(() => {
-    if (activeTab === 'trends') {
-      fetch(`${API_BASE_URL}/analytics`)
-        .then(res => res.json())
-        .then(data => setAnalytics(data))
-        .catch(err => console.error("Analytics fetch error:", err));
-    }
-  }, [activeTab]);
-
+  // Restore auth on page load — runs after mount
   useEffect(() => {
     if (!mounted) return;
-    fetch(`${API_BASE_URL}/preferences`)
-      .then(res => res.ok ? res.json() : Promise.reject())
-      .then(data => { if (data) setPreferences(prev => ({ ...prev, ...data })); })
-      .catch(err => console.error("Pref fetch error:", err));
-  }, [mounted]);
-
-  const updatePreferences = (newPrefs) => {
-    setPreferences(newPrefs);
-    fetch(`${API_BASE_URL}/preferences`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newPrefs)
-    });
-  };
-
-  const handleFileUpload = (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const dataUrl = reader.result;
-        setCapturedImage(dataUrl);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const triggerFileUpload = () => {
-    if (fileInputRef.current) fileInputRef.current.click();
-  };
-
-  useEffect(() => {
-    let stream;
-    const startCamera = async () => {
+    const savedToken = localStorage.getItem("ns_token");
+    const savedUser = localStorage.getItem("ns_user");
+    if (savedToken && savedUser) {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        if (videoRef.current) { videoRef.current.srcObject = stream; }
-      } catch (err) { alert("Could not access camera. Please grant permission."); }
-    };
-    if (activeTab === 'scanner') {
-      if (!capturedImage) {
-        startCamera();
-      }
+        setToken(savedToken);
+        setCurrentUser(JSON.parse(savedUser));
+        setIsGuest(false);
+        setAppPhase("app"); // skip splash+welcome if already logged in
+      } catch { /* ignore parse err */ }
+    } else {
+      setToken(null); // explicitly resolved: no saved token
     }
+    // Trigger history refresh once auth is resolved
+    setRefreshTick(t => t + 1);
+  }, [mounted]);
+
+  // Camera — MUST be declared before any early return to satisfy Rules of Hooks
+  useEffect(() => {
+    if (!mounted) return; // guard inside the hook, not an early return from component
+    let stream;
+    (async () => {
+      if (activeTab !== "scanner" || capturedImage) return;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        if (videoRef.current) videoRef.current.srcObject = stream;
+      } catch { /* camera denied */ }
+    })();
     return () => { if (stream) stream.getTracks().forEach(t => t.stop()); };
-  }, [activeTab, capturedImage]);
+  }, [activeTab, capturedImage, mounted]);
+
+  // ── Early return AFTER all hooks ────────────────────────────────────────────
+  if (!mounted) return (
+    <div className="bg-slate-100 min-h-screen flex items-center justify-center">
+      <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+
+  // ── Event handlers (not hooks, safe after early return) ─────────────────────
+  const handleAuth = (user, tok) => {
+    setCurrentUser(user);
+    setToken(tok);
+    setIsGuest(false);
+    setAppPhase("app");
+  };
+  const handleGuest = () => { setIsGuest(true); setAppPhase("app"); };
+  const handleLogout = () => {
+    localStorage.removeItem("ns_token");
+    localStorage.removeItem("ns_user");
+    setCurrentUser(null); setToken(null); setIsGuest(false);
+    setAppPhase("welcome");
+  };
 
   const takePhoto = () => {
-    if (videoRef.current && canvasRef.current) {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      canvas.width = video.videoWidth || 300;
-      canvas.height = video.videoHeight || 300;
-      canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL('image/jpeg');
-      setCapturedImage(dataUrl);
-      const stream = video.srcObject;
-      if (stream) stream.getTracks().forEach(t => t.stop());
-    }
+    const video = videoRef.current, canvas = canvasRef.current;
+    if (!video || !canvas) return;
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+    setCapturedImage(canvas.toDataURL("image/jpeg", 0.9));
+    video.srcObject?.getTracks().forEach(t => t.stop());
   };
 
-  const retakePhoto = () => {
-    setCapturedImage(null);
-    setAnalysisResult(null);
+  const handleFileUpload = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => setCapturedImage(reader.result);
+    reader.readAsDataURL(file);
   };
 
-  const [analysisStatus, setAnalysisStatus] = useState("");
-
+  // Core scan logic — barcode mode: /api/scan (XGBoost+DB, no RAG)
+  //                   label mode:   /api/scan-label (OCR + RAG)
   const handleAnalyzeClick = async () => {
     if (!capturedImage) return;
-
-    // ── INGREDIENTS / LABEL SCAN (Indian food side-pipeline) ──────────────────
-    if (scanStage === 'ingredients') {
-      if (!productName.trim()) {
-        alert('Please enter the product name before scanning.');
-        return;
-      }
-      setIsAnalyzing(true);
-      setAnalysisStatus('Reading label text...');
-      const statusTimers = [
-        setTimeout(() => setAnalysisStatus('Running OCR on ingredients list...'), 3000),
-        setTimeout(() => setAnalysisStatus('Searching FSSAI & Open Food Facts India...'), 10000),
-        setTimeout(() => setAnalysisStatus('Computing health score & additive alerts...'), 20000),
-      ];
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/scan-label`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: capturedImage, product_name: productName.trim() })
-        });
-        const rawText = await response.text();
-        let data;
-        try { data = rawText ? JSON.parse(rawText) : {}; }
-        catch { throw new Error('Backend returned an unexpected response.'); }
-
-        if (!response.ok) throw new Error(data.error || 'Label analysis failed');
-        setAnalysisResult(data);
-        setShowReveal(true);
-      } catch (error) {
-        console.error('Label Analysis Error:', error);
-        alert(error.message || 'Failed to connect to the backend server.');
-      } finally {
-        setIsAnalyzing(false);
-        setAnalysisStatus('');
-        statusTimers.forEach(clearTimeout);
-      }
-      return;
-    }
-
-    // ── BARCODE SCAN (primary pipeline) ────────────────────────────────────────
     setIsAnalyzing(true);
-    setAnalysisStatus('Reading barcode...');
-    const statusTimers = [
-      setTimeout(() => setAnalysisStatus('Decoding barcode...'), 2000),
-      setTimeout(() => setAnalysisStatus('Looking up product in database...'), 5000),
-      setTimeout(() => setAnalysisStatus('Fetching nutrition data...'), 10000),
-      setTimeout(() => setAnalysisStatus('Almost there, computing health score...'), 18000)
-    ];
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/scan`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: capturedImage })
-      });
-      const rawText = await response.text();
-      let data;
-      try { data = rawText ? JSON.parse(rawText) : {}; }
-      catch { throw new Error('Backend returned an unexpected response. Check the server logs.'); }
 
-      if (response.status === 422 && data.message === 'barcode_not_found') {
-        setScanStage('ingredients');
-        setCapturedImage(null);
-        setAnalysisResult(null);
-        setProductName('');
-        setActiveTab('scanner');
-        alert('No barcode detected. Make sure the barcode is clearly visible and well-lit.\n\nSwitching to Label Scan mode — photograph the ingredients list and enter the product name.');
-      } else if (response.status === 200 && data.status === 'partial') {
-        alert(`Barcode detected (${data.gtin}) but no product data found in any database.\n\nTry the Label Scan instead.`);
-      } else if (!response.ok) {
-        throw new Error(data.error || data.message || 'Analysis failed');
+    const isBarcodeMode = scanMode === "barcode";
+    setAnalysisStatus(isBarcodeMode ? "Decoding barcode…" : "Initialising RAG label analysis…");
+
+    const timers = isBarcodeMode ? [
+      setTimeout(() => setAnalysisStatus("Querying nutrition database…"), 2000),
+      setTimeout(() => setAnalysisStatus("Scoring with health model…"), 4000),
+    ] : [
+      setTimeout(() => setAnalysisStatus("Running OCR on label image…"), 2000),
+      setTimeout(() => setAnalysisStatus("Identifying additives…"), 5000),
+      setTimeout(() => setAnalysisStatus("RAG intelligence scoring…"), 9000),
+    ];
+
+    try {
+      const headers = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      let res, data;
+
+      if (isBarcodeMode) {
+        // ── Barcode path: fast, XGBoost scored, no RAG ──────────────────
+        res = await fetch(`${API}/api/scan`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ image: capturedImage }),
+        });
+        data = await res.json();
+
+        if (!res.ok || data.status === "error" || data.status === "partial") {
+          const msg =
+            data.message === "barcode_not_found"
+              ? "No barcode detected. Make sure the barcode is clear and well-lit, or switch to 'Scan Label' mode."
+              : data.message === "nutrition_unavailable"
+                ? `Barcode read (${data.gtin}) but product not in database. Try 'Scan Label' mode for this product.`
+                : data.error || "Barcode scan failed.";
+          throw new Error(msg);
+        }
       } else {
-        setAnalysisResult(data);
-        setShowReveal(true);
+        // ── Label path: OCR + RAG pipeline ─────────────────────────────
+        const productName = prompt("Enter the product name (helps the RAG engine):") || "Unknown Product";
+        res = await fetch(`${API}/api/scan-label`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ image: capturedImage, product_name: productName }),
+        });
+        data = await res.json();
+        if (!res.ok && !data.health_score) throw new Error(data.error || "Label analysis failed.");
       }
-    } catch (error) {
-      console.error('Analysis Error:', error);
-      alert(error.message || 'Failed to connect to the backend server.');
+
+      setAnalysisResult(data);
+      setShowReveal(true);
+      // refreshTick will increment in handleRevealDone after animation
+    } catch (err) {
+      alert(err.message || "Failed to connect to the backend.");
     } finally {
       setIsAnalyzing(false);
-      setAnalysisStatus('');
-      statusTimers.forEach(clearTimeout);
+      setAnalysisStatus("");
+      timers.forEach(clearTimeout);
     }
   };
 
   const handleRevealDone = () => {
     setShowReveal(false);
-    setActiveTab('results');
-    if (analysisResult?.health_score === 'GREEN') {
-      setShowConfetti(true);
-      setTimeout(() => setShowConfetti(false), 4500);
-    }
+    setActiveTab("results");
+    // ✅ Refresh history + trends AFTER reveal animation completes
+    // (scan is guaranteed saved to DB by now)
+    setRefreshTick(t => t + 1);
   };
 
-  const scoreConfig = {
-    RED: { bg: 'bg-gradient-to-br from-red-500 to-rose-700', label: 'HARMFUL', emoji: '🚨', shadow: 'shadow-red-200', badge: 'bg-red-100 text-red-700' },
-    YELLOW: { bg: 'bg-gradient-to-br from-yellow-400 to-amber-500', label: 'MODERATE', emoji: '⚠️', shadow: 'shadow-yellow-200', badge: 'bg-yellow-100 text-yellow-800' },
-    GREEN: { bg: 'bg-gradient-to-br from-emerald-400 to-green-600', label: 'HEALTHY', emoji: '✅', shadow: 'shadow-green-200', badge: 'bg-green-100 text-green-800' },
+  const updatePreferences = newPrefs => {
+    setPreferences(newPrefs);
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    fetch(`${API}/preferences`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(newPrefs),
+    }).catch(() => { });
   };
-
-  if (!mounted) {
-    return (
-      <div className="bg-slate-100 min-h-screen flex items-center justify-center">
-        <div className="w-10 h-10 border-4 border-[#3a3f85] border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    );
-  }
 
   return (
     <div className="bg-slate-100 min-h-screen overflow-x-hidden">
-      <div className="max-wrapper relative min-h-screen flex flex-col">
-        {/* Score Reveal Overlay */}
-        {showReveal && analysisResult && (
-          <ScoreReveal
-            result={analysisResult}
-            onDone={handleRevealDone}
-          />
-        )}
+      {/* Splash */}
+      {appPhase === "splash" && <SplashScreen onDone={() => setAppPhase("welcome")} />}
+      {/* Auth / Welcome */}
+      {appPhase === "welcome" && <WelcomeScreen onAuth={handleAuth} onGuest={handleGuest} />}
 
-        {/* Confetti Canvas */}
-        <Confetti active={showConfetti} />
+      <div className="max-wrapper relative min-h-screen flex flex-col">
+        {showReveal && analysisResult && <ScoreReveal result={analysisResult} onDone={handleRevealDone} />}
 
         {/* TOP BAR */}
-        <header className="sticky top-0 z-40 w-full flex justify-between items-center px-6 py-4 bg-white/80 backdrop-blur-md border-b border-slate-100">
+        <header className="sticky top-0 z-40 w-full flex justify-between items-center px-5 py-3.5 bg-white/90 backdrop-blur-md border-b border-slate-100">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#3a3f85] to-[#6c63ff] flex items-center justify-center text-white font-black text-sm shadow-lg">FS</div>
+            <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-[#3a3f85] to-[#6c63ff] flex items-center justify-center shadow-lg">
+              <svg viewBox="0 0 32 32" className="w-5 h-5">
+                <rect x="3" y="6" width="1.5" height="20" rx="0.75" fill="white" />
+                <rect x="6.5" y="4" width="1" height="24" rx="0.5" fill="white" opacity="0.8" />
+                <rect x="9.5" y="6" width="2" height="20" rx="1" fill="white" />
+                <rect x="13.5" y="4" width="1" height="24" rx="0.5" fill="white" opacity="0.8" />
+                <rect x="16" y="6" width="2.5" height="20" rx="1" fill="white" />
+                <rect x="20.5" y="4" width="1" height="24" rx="0.5" fill="white" opacity="0.8" />
+                <rect x="23" y="6" width="1.5" height="20" rx="0.75" fill="white" />
+                <rect x="26.5" y="4" width="1" height="24" rx="0.5" fill="white" opacity="0.8" />
+                <rect x="29" y="6" width="1.5" height="20" rx="0.75" fill="white" />
+                <rect x="2" y="14.5" width="28" height="3" rx="1.5" fill="#00f5c4" opacity="0.9" />
+              </svg>
+            </div>
             <div>
-              <p className="font-black text-gray-900 text-sm leading-none tracking-tight">NutriScanner</p>
-              <select
-                onChange={(e) => i18n.changeLanguage(e.target.value)}
-                value={i18n.language}
-                className="text-[10px] font-bold bg-transparent border-none outline-none text-[#3a3f85] cursor-pointer mt-1"
-              >
+              <p className="font-black text-gray-900 text-sm leading-none">NutriScanner</p>
+              <select onChange={e => i18n.changeLanguage(e.target.value)} value={i18n.language}
+                className="text-[10px] font-bold bg-transparent border-none outline-none text-[#3a3f85] cursor-pointer mt-0.5">
                 <option value="en">English</option>
                 <option value="hi">हिन्दी</option>
                 <option value="mr">मराठी</option>
               </select>
             </div>
           </div>
-          <div className="p-1 hover:bg-slate-50 rounded-xl transition-colors cursor-pointer">
-            <UserIconSmall />
+          <div className="flex items-center gap-2">
+            {isGuest && (
+              <button onClick={() => setAppPhase("welcome")}
+                className="text-[10px] font-black bg-[#3a3f85] text-white px-3 py-1.5 rounded-xl uppercase tracking-wide">
+                Sign In
+              </button>
+            )}
+            {currentUser && (
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#3a3f85] to-[#6c63ff] flex items-center justify-center text-white font-black text-sm shadow-md">
+                {currentUser.name?.[0]?.toUpperCase() || "U"}
+              </div>
+            )}
           </div>
         </header>
 
-        <main className="flex-1 flex flex-col relative overflow-hidden">
-          <div className="flex-1 animate-fade-in overflow-y-auto">
-            {/* SCREEN 1: DASHBOARD */}
-            {activeTab === 'dashboard' && (
-              <div className="px-6 py-6 pb-24">
-                <div className="mb-8 flex gap-4 items-center animate-slide-up">
-                  <div className="w-16 h-16 rounded-2xl bg-slate-900 flex items-center justify-center shadow-xl relative overflow-hidden">
-                    <div className="w-6 h-6 bg-white/20 rounded-full absolute -top-1 -right-1"></div>
-                    <div className="text-3xl">👋</div>
-                  </div>
-                  <div>
-                    <p className="text-2xl font-black text-gray-900 leading-tight">{t('dashboard')}</p>
-                    <p className="text-slate-400 text-sm font-medium mt-0.5">Welcome back, Guna!</p>
-                  </div>
-                </div>
-
-                <div onClick={() => setActiveTab('scanner')} className="bg-gradient-to-r from-[#3a3f85] to-[#6610f2] rounded-3xl p-6 flex justify-between items-center cursor-pointer active:scale-[0.98] transition-all shadow-xl shadow-blue-500/10 mb-8 border border-white/10 group">
-                  <div>
-                    <p className="text-white font-black text-xl leading-tight group-hover:translate-x-1 transition-transform">{t('scan_now')}</p>
-                    <p className="text-white/70 text-sm mt-1">{t('scanning')}</p>
-                  </div>
-                  <div className="w-14 h-14 bg-white/15 backdrop-blur-md rounded-2xl flex items-center justify-center border border-white/20 shadow-inner group-hover:rotate-6 transition-transform">
-                    <span className="text-3xl">📸</span>
-                  </div>
-                </div>
-
-                <div className="mb-4">
-                  <div className="flex justify-between items-end mb-4 px-1">
-                    <p className="font-black text-slate-900 text-xs tracking-widest uppercase">{t('history')}</p>
-                    <button className="text-[10px] font-black text-[#3a3f85] uppercase tracking-wider">See All</button>
-                  </div>
-                  <HistoryFeed />
-                </div>
+        <main className="flex-1 flex flex-col">
+          {/* DASHBOARD — always mounted, hidden when inactive */}
+          <div className={activeTab === "dashboard" ? "px-5 py-5 pb-28 overflow-y-auto" : "hidden"}>
+            <div className="mb-6 flex items-center gap-3">
+              <div className="w-14 h-14 rounded-2xl bg-slate-900 flex items-center justify-center shadow-xl text-3xl">👋</div>
+              <div>
+                <p className="text-xl font-black text-gray-900">
+                  {isGuest ? "Hello, Guest!" : `Hello, ${currentUser?.name?.split(" ")[0] || "there"}!`}
+                </p>
+                <p className="text-slate-400 text-sm mt-0.5">
+                  {isGuest ? "Scan mode active" : "Track your food health"}
+                </p>
               </div>
-            )}
+            </div>
 
-            {activeTab === 'profile' && <SettingsView preferences={preferences} onUpdate={updatePreferences} />}
-            {activeTab === 'trends' && <TrendsView analytics={analytics} />}
+            <button onClick={() => setActiveTab("scanner")}
+              className="w-full bg-gradient-to-r from-[#3a3f85] to-[#6610f2] rounded-3xl p-6 flex justify-between items-center cursor-pointer active:scale-[0.98] transition-all shadow-xl shadow-blue-500/15 mb-6 border border-white/10 group">
+              <div>
+                <p className="text-white font-black text-xl leading-tight group-hover:translate-x-1 transition-transform">Scan Now</p>
+                <p className="text-white/60 text-sm mt-1">Point camera at barcode or label</p>
+              </div>
+              <div className="w-14 h-14 bg-white/15 backdrop-blur-md rounded-2xl flex items-center justify-center border border-white/20 group-hover:rotate-6 transition-transform text-3xl">📸</div>
+            </button>
 
-            {/* SCREEN 2: SCANNER */}
-            {activeTab === 'scanner' && (
-              <div className="flex-1 flex flex-col pb-24 px-6 pt-6">
-                {/* Mode toggle tabs */}
-                <div className="flex gap-2 mb-5 bg-slate-100 p-1 rounded-2xl">
-                  <button
-                    onClick={() => { setScanStage('barcode'); setCapturedImage(null); setProductName(''); }}
-                    className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${scanStage === 'barcode' ? 'bg-[#3a3f85] text-white shadow-lg' : 'text-slate-400'
-                      }`}
-                  >📦 Barcode Scan</button>
-                  <button
-                    onClick={() => { setScanStage('ingredients'); setCapturedImage(null); setProductName(''); }}
-                    className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${scanStage === 'ingredients' ? 'bg-orange-500 text-white shadow-lg' : 'text-slate-400'
-                      }`}
-                  >🇮🇳 Label Scan</button>
-                </div>
+            <div className="flex justify-between items-center mb-3 px-1">
+              <p className="font-black text-slate-900 text-xs tracking-widest uppercase">Recent Scans</p>
+              {!isGuest && refreshTick > 0 && (
+                <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">✓ Updated</span>
+              )}
+            </div>
+            <HistoryFeed refreshTick={refreshTick} token={token} isGuest={isGuest} />
+          </div>
 
-                {/* Mode hint */}
-                <div className={`mb-4 p-3 rounded-2xl text-xs font-bold leading-relaxed ${scanStage === 'barcode'
-                    ? 'bg-blue-50 text-blue-700 border border-blue-100'
-                    : 'bg-orange-50 text-orange-700 border border-orange-100'
-                  }`}>
-                  {scanStage === 'barcode'
-                    ? '📸 Point camera at the barcode on the product packaging. Works best for products available globally.'
-                    : '🇮🇳 Indian product? Photo the ingredients + nutrition table, then type the product name below. We\'ll search FSSAI & Open Food Facts India.'}
-                </div>
+          {/* TRENDS — always mounted, hidden when inactive */}
+          <div className={activeTab === "trends" ? "" : "hidden"}>
+            <TrendsView refreshTick={refreshTick} token={token} isGuest={isGuest} />
+          </div>
 
-                <div className="flex-1 flex items-center justify-center">
-                  <div className={`relative w-full aspect-[9/12] bg-slate-900 rounded-[40px] shadow-2xl p-1.5 ring-8 overflow-hidden group ${scanStage === 'ingredients' ? 'ring-orange-100' : 'ring-slate-50'
+          {/* SCANNER */}
+          {activeTab === "scanner" && (
+            <div className="flex-1 flex flex-col pb-28 px-5 pt-5">
+              <p className="font-black text-slate-900 text-xl tracking-tight mb-1">Scan Product</p>
+
+              {/* ── Mode selector pill ── */}
+              <div className="flex gap-2 mb-5 bg-slate-100 rounded-2xl p-1">
+                <button
+                  id="mode-barcode"
+                  onClick={() => { setScanMode("barcode"); setCapturedImage(null); }}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${scanMode === "barcode"
+                    ? "bg-slate-900 text-white shadow-lg"
+                    : "text-slate-400 hover:text-slate-600"
                     }`}>
-                    <canvas ref={canvasRef} className="hidden"></canvas>
-                    <div className="relative h-full w-full bg-slate-800 rounded-[34px] overflow-hidden flex items-center justify-center border border-white/10">
-                      {!capturedImage ? (
-                        <video ref={videoRef} autoPlay playsInline muted className="object-cover w-full h-full" />
+                  <span>📦</span> Scan Barcode
+                </button>
+                <button
+                  id="mode-label"
+                  onClick={() => { setScanMode("label"); setCapturedImage(null); }}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${scanMode === "label"
+                    ? "bg-gradient-to-r from-[#3a3f85] to-[#6c63ff] text-white shadow-lg"
+                    : "text-slate-400 hover:text-slate-600"
+                    }`}>
+                  <span>🔬</span> Scan Label
+                </button>
+              </div>
+
+              {/* Mode hint */}
+              <p className="text-slate-400 text-[10px] font-bold mb-4 text-center uppercase tracking-widest">
+                {scanMode === "barcode"
+                  ? "📦 Point at the barcode — fast & accurate via health model"
+                  : "🔬 Photo the nutrition / ingredient label — RAG AI deep analysis"}
+              </p>
+
+              <div className="flex-1 flex items-center justify-center">
+                <div className="relative w-full aspect-[9/12] bg-slate-900 rounded-[36px] shadow-2xl p-1.5 ring-8 ring-slate-50">
+                  <canvas ref={canvasRef} className="hidden" />
+                  <div className="relative h-full w-full bg-slate-800 rounded-[30px] overflow-hidden flex items-center justify-center border border-white/10">
+                    {!capturedImage
+                      ? <video ref={videoRef} autoPlay playsInline muted className="object-cover w-full h-full" />
+                      : <img src={capturedImage} alt="Captured" className="object-cover w-full h-full" />
+                    }
+                    {/* Scan overlay line */}
+                    {!capturedImage && (
+                      <div className="absolute inset-0 pointer-events-none">
+                        <div className="scanner-line" />
+                        <div className="absolute inset-8 border-2 border-dashed border-white/20 rounded-3xl" />
+                      </div>
+                    )}
+                    {/* Bottom buttons */}
+                    <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-4 px-8 z-20">
+                      {capturedImage ? (
+                        <button onClick={() => setCapturedImage(null)}
+                          className="flex-1 h-12 bg-white/20 backdrop-blur border border-white/40 text-white text-xs font-black rounded-2xl active:scale-95 transition-all">
+                          ↺ Retake
+                        </button>
                       ) : (
-                        <img src={capturedImage} alt="Captured Product Label" className="object-cover w-full h-full" />
-                      )}
-
-                      {/* Scan overlay guide */}
-                      {!capturedImage && scanStage === 'barcode' && (
-                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                          <div className="w-3/4 h-24 border-4 border-white/50 rounded-2xl" style={{ boxShadow: '0 0 0 9999px rgba(0,0,0,0.35)' }}></div>
-                        </div>
-                      )}
-
-                      <div className="absolute bottom-8 left-0 right-0 flex justify-center gap-4 z-20 px-8">
-                        {capturedImage ? (
-                          <button onClick={retakePhoto} className="flex-1 h-14 bg-white/20 backdrop-blur-md border border-white/40 text-white text-xs font-black rounded-2xl shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2">
-                            <span>↺</span> RETAKE
-                          </button>
-                        ) : (
-                          <button onClick={takePhoto} className="w-20 h-20 bg-white rounded-full shadow-2xl active:scale-90 transition-all flex items-center justify-center border-8 border-white/20">
-                            <div className="w-12 h-12 rounded-full border-4 border-slate-900"></div>
-                          </button>
-                        )}
-                      </div>
-                      {!capturedImage && (
-                        <button onClick={triggerFileUpload} className="absolute top-6 right-6 w-12 h-12 bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl flex items-center justify-center text-white text-xl shadow-xl active:scale-90 transition-all">📁</button>
+                        <button onClick={takePhoto}
+                          className="w-20 h-20 bg-white rounded-full shadow-2xl active:scale-90 transition-all flex items-center justify-center border-8 border-white/20">
+                          <div className="w-12 h-12 rounded-full border-4 border-slate-900" />
+                        </button>
                       )}
                     </div>
+                    {!capturedImage && (
+                      <button onClick={() => fileInputRef.current?.click()}
+                        className="absolute top-5 right-5 w-11 h-11 bg-white/10 backdrop-blur border border-white/20 rounded-2xl flex items-center justify-center text-white text-lg active:scale-90 transition-all">
+                        📁
+                      </button>
+                    )}
                   </div>
-                </div>
-
-                {/* Label scan: product name input */}
-                {scanStage === 'ingredients' && (
-                  <div className="mt-4 space-y-2">
-                    <label className="text-[10px] font-black text-orange-600 uppercase tracking-widest">Product Name (required)</label>
-                    <input
-                      type="text"
-                      value={productName}
-                      onChange={(e) => setProductName(e.target.value)}
-                      placeholder="e.g. Maggi Noodles, Parle-G, Kurkure Masala"
-                      className="w-full px-4 py-3 rounded-2xl border-2 border-orange-200 bg-white text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-400/60 focus:border-transparent"
-                    />
-                    <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
-                      Tip: Include brand name for best results. E.g. &quot;Parle Magix Choco Cream&quot;
-                    </p>
-                  </div>
-                )}
-
-                <div className="pb-8 mt-4 space-y-3">
-                  {isAnalyzing ? (
-                    <div className="flex-1 flex flex-col items-center justify-center gap-3">
-                      <div className={`h-16 w-full text-white rounded-2xl font-black flex items-center justify-center gap-3 ${scanStage === 'ingredients' ? 'bg-orange-500' : 'bg-slate-900'
-                        }`}>
-                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                        {scanStage === 'ingredients' ? 'READING LABEL...' : 'SCANNING...'}
-                      </div>
-                      {analysisStatus && (
-                        <p className="text-[10px] text-slate-500 font-black animate-pulse uppercase tracking-widest">{analysisStatus}</p>
-                      )}
-                    </div>
-                  ) : capturedImage ? (
-                    <button
-                      onClick={handleAnalyzeClick}
-                      className={`flex-1 h-16 text-white rounded-2xl font-black shadow-lg active:scale-98 transition-all uppercase tracking-widest ${scanStage === 'ingredients'
-                          ? 'bg-orange-500 shadow-orange-200'
-                          : 'bg-[#3a3f85] shadow-blue-500/20'
-                        }`}
-                    >
-                      {scanStage === 'ingredients' ? '🇮🇳 Analyse Label' : 'Generate Scan'}
-                    </button>
-                  ) : (
-                    <div className="flex-1 h-16 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center text-slate-400 text-[10px] font-black uppercase tracking-widest">
-                      {scanStage === 'barcode' ? 'Position barcode in frame' : 'Photo the ingredients / nutrition table'}
-                    </div>
-                  )}
                 </div>
               </div>
-            )}
 
-            {/* SCREEN 3: RESULTS */}
-            {activeTab === 'results' && analysisResult && (
-              <div className="px-6 py-6 pb-24 animate-fade-in">
-                {(() => {
-                  const key = analysisResult.health_score || 'YELLOW';
-                  const cfg = scoreConfig[key] || scoreConfig['YELLOW'];
-                  return (
-                    <div className={`rounded-[32px] p-8 text-white ${cfg.bg} ${cfg.shadow} mb-8 relative overflow-hidden shadow-2xl`}>
-                      <div className="relative z-10">
-                        <div className="flex justify-between items-start mb-6">
-                          <span className="bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase border border-white/20">{t('health_score')}</span>
-                          <span className="text-4xl filter drop-shadow-md">{cfg.emoji}</span>
-                        </div>
-                        <h1 className="text-4xl font-black mb-1 leading-tight tracking-tighter uppercase">
-                          {analysisResult.brand && <span className="text-white/60 block text-[10px] tracking-widest mb-1.5 font-black">{analysisResult.brand.toUpperCase()}</span>}
-                          {analysisResult.product_name || 'Unknown Product'}
-                        </h1>
-                        <p className="text-white/80 font-black uppercase tracking-[0.2em] text-[10px]">{cfg.label}</p>
-                        <div className="mt-8 flex items-baseline gap-2">
-                          <span className="text-7xl font-black tracking-tighter">{analysisResult.score_value || 0}</span>
-                          <span className="text-2xl font-bold text-white/40">/10</span>
-                        </div>
+              <div className="mt-6">
+                {isAnalyzing ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="w-full h-14 bg-slate-900 text-white rounded-2xl font-black flex items-center justify-center gap-3">
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-emerald-400 rounded-full animate-spin" />
+                      ANALYZING…
+                    </div>
+                    {analysisStatus && <p className="text-[10px] text-slate-500 font-bold animate-pulse uppercase tracking-widest">{analysisStatus}</p>}
+                  </div>
+                ) : capturedImage ? (
+                  <button onClick={handleAnalyzeClick}
+                    className={`w-full h-14 text-white rounded-2xl font-black shadow-lg active:scale-98 transition-all uppercase tracking-widest ${scanMode === "barcode"
+                      ? "bg-slate-900 shadow-slate-500/20"
+                      : "bg-gradient-to-r from-[#3a3f85] to-[#6c63ff] shadow-blue-500/20"
+                      }`}>
+                    {scanMode === "barcode" ? "Analyse Barcode 📦" : "Analyse with RAG AI 🔬"}
+                  </button>
+                ) : (
+                  <div className="w-full h-14 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center text-slate-400 text-[10px] font-black uppercase tracking-widest">
+                    Point camera at product
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* RESULTS */}
+          {activeTab === "results" && analysisResult && (() => {
+            const key = analysisResult.health_score || "YELLOW";
+            const cfg = scoreConfig[key] || scoreConfig.YELLOW;
+            return (
+              <div className="px-5 py-5 pb-28 overflow-y-auto animate-fade-in">
+                <div className={`rounded-[28px] p-7 text-white ${cfg.bg} mb-6 relative overflow-hidden shadow-2xl`}>
+                  <div className="relative z-10">
+                    <div className="flex justify-between items-start mb-5">
+                      <span className="bg-white/20 backdrop-blur px-3 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase border border-white/20">Health Score</span>
+                      <span className="text-4xl">{cfg.emoji}</span>
+                    </div>
+                    <h1 className="text-3xl font-black leading-tight uppercase tracking-tighter">
+                      {analysisResult.brand && <span className="text-white/50 block text-[10px] tracking-widest mb-1 font-black">{analysisResult.brand.toUpperCase()}</span>}
+                      {analysisResult.product_name || "Unknown Product"}
+                    </h1>
+                    <p className="text-white/70 font-black uppercase tracking-[0.2em] text-[10px] mt-1">{cfg.label}</p>
+                    <div className="mt-6 flex items-baseline gap-1.5">
+                      <span className="text-6xl font-black">{analysisResult.score_value ?? "–"}</span>
+                      <span className="text-xl font-bold text-white/40">/10</span>
+                    </div>
+                  </div>
+                  <div className="absolute -bottom-8 -right-8 w-40 h-40 bg-white/10 rounded-full blur-3xl" />
+                </div>
+
+                <NutritionCard nutrition={analysisResult.nutrition} />
+
+                {/* RAG insights */}
+                {analysisResult.rag_analysis && (
+                  <div className="bg-gradient-to-br from-[#3a3f85]/5 to-[#6c63ff]/5 border border-[#6c63ff]/20 rounded-3xl p-5 mb-6">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-lg">🧠</span>
+                      <p className="font-black text-[#3a3f85] text-xs uppercase tracking-widest">RAG Intelligence Analysis</p>
+                    </div>
+                    {analysisResult.rag_analysis.warnings?.length > 0 && (
+                      <div className="space-y-2 mb-3">
+                        {analysisResult.rag_analysis.warnings.map((w, i) => (
+                          <div key={i} className="bg-amber-50 border border-amber-100 rounded-2xl px-3 py-2 text-xs font-semibold text-amber-700">
+                            ⚠ {w}
+                          </div>
+                        ))}
                       </div>
-                      {/* Data quality badge */}
-                      {analysisResult.data_quality && (
-                        <div className="absolute top-4 right-4 bg-black/20 backdrop-blur px-2 py-1 rounded-full">
-                          <span className="text-[9px] font-black text-white/80 uppercase tracking-wider">
-                            {analysisResult.data_quality === 'api_verified' ? '✅ API Verified'
-                              : analysisResult.data_quality === 'fssai_partial' ? '🇮🇳 FSSAI'
-                                : '🔍 OCR Extracted'}
-                          </span>
-                        </div>
-                      )}
-                      <div className="absolute -bottom-10 -right-10 w-48 h-48 bg-white/10 rounded-full blur-3xl"></div>
-                    </div>
-                  );
-                })()}
-
-                {/* ── Warnings banner (Indian label scan) ── */}
-                {analysisResult.warnings && analysisResult.warnings.length > 0 && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-[24px] p-5 mb-6">
-                    <p className="text-amber-700 font-black text-[10px] uppercase tracking-widest mb-3 flex items-center gap-2">⚠️ Health Alerts</p>
-                    <div className="space-y-2">
-                      {analysisResult.warnings.map((w, i) => (
-                        <div key={i} className="flex items-center gap-2">
-                          <div className="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0"></div>
-                          <p className="text-amber-800 text-xs font-semibold">{w}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <NutritionSummary nutrition={analysisResult.nutrition} />
-
-                {analysisResult.xai && <XAIExplanation xaiData={analysisResult.xai} imageUrl={capturedImage} productName={analysisResult.product_name} />}
-
-                {analysisResult.additives && analysisResult.additives.length > 0 && (
-                  <div className="mb-8">
-                    <div className="flex items-center gap-2 mb-4 px-1">
-                      <div className="w-1.5 h-4 bg-slate-900 rounded-full"></div>
-                      <p className="font-black text-slate-900 text-xs tracking-widest uppercase">Ingredient Flags</p>
-                    </div>
-                    <div className="space-y-4">
-                      {analysisResult.additives.map((add, i) => (
-                        <AdditiveCard key={i} additive={add} index={i} />
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Data source note */}
-                {analysisResult.source && (
-                  <div className="bg-slate-50 rounded-2xl p-4 mb-6 border border-slate-100">
-                    <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">
-                      Source: {analysisResult.source === 'off_india' ? 'Open Food Facts India 🇮🇳'
-                        : analysisResult.source === 'off_world' ? 'Open Food Facts Global'
-                          : analysisResult.source === 'fssai' ? 'FSSAI FOSCOS Database 🇮🇳'
-                            : analysisResult.source === 'ocr_extracted' ? 'OCR Label Extraction'
-                              : analysisResult.source}
-                    </p>
-                    {analysisResult.fssai_license && (
-                      <p className="text-slate-500 text-[10px] font-bold mt-1">FSSAI License: {analysisResult.fssai_license}</p>
+                    )}
+                    {analysisResult.rag_analysis.fssai_compliance === false && (
+                      <div className="bg-red-50 border border-red-100 rounded-2xl px-3 py-2 text-xs font-bold text-red-700">
+                        🚨 {analysisResult.rag_analysis.compliance_message}
+                      </div>
+                    )}
+                    {analysisResult.rag_analysis.allergens_detected?.length > 0 && (
+                      <p className="text-xs text-slate-600 mt-2 font-medium">
+                        🥜 Allergens: {analysisResult.rag_analysis.allergens_detected.join(", ")}
+                      </p>
                     )}
                   </div>
                 )}
 
+                {/* Additives */}
+                {analysisResult.additives?.length > 0 && (
+                  <div className="mb-6">
+                    <p className="font-black text-slate-900 text-xs tracking-widest uppercase mb-3 px-1">Ingredient Flags</p>
+                    <div className="space-y-3">
+                      {analysisResult.additives.map((a, i) => (
+                        <div key={i} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex justify-between items-start">
+                          <div>
+                            <p className="font-black text-slate-900 text-sm">{a.name}</p>
+                            <p className="text-slate-400 text-xs mt-0.5">{a.reason}</p>
+                          </div>
+                          <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ml-3 flex-shrink-0 ${a.risk_level === "RED" ? "bg-red-100 text-red-700" : a.risk_level === "ORANGE" ? "bg-orange-100 text-orange-700" : "bg-yellow-100 text-yellow-700"}`}>
+                            {a.risk_level}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Healthy alternative */}
                 {analysisResult.healthy_alternative && (
-                  <div className="bg-emerald-50 rounded-[32px] p-7 border border-emerald-100 mb-8 shadow-sm">
-                    <div className="flex items-center gap-2 mb-3">
+                  <div className="bg-emerald-50 rounded-[28px] p-6 border border-emerald-100 mb-6 shadow-sm">
+                    <div className="flex items-center gap-2 mb-2">
                       <span className="text-xl">💡</span>
                       <p className="text-emerald-600 font-black text-[10px] uppercase tracking-widest">Better Alternative</p>
                     </div>
-                    <p className="text-slate-900 font-black text-xl leading-snug mb-2">{analysisResult.healthy_alternative}</p>
-                    <p className="text-emerald-700/60 text-[11px] font-medium italic">Choosing this improves your health baseline.</p>
+                    <p className="text-slate-900 font-black text-lg leading-snug">{analysisResult.healthy_alternative}</p>
                   </div>
                 )}
+
+                <button onClick={() => setActiveTab("scanner")}
+                  className="w-full h-14 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest">
+                  Scan Another Product 📸
+                </button>
               </div>
-            )}
-          </div>
+            );
+          })()}
+
+          {/* PREFS */}
+          {activeTab === "profile" && (
+            <SettingsView
+              preferences={preferences}
+              onUpdate={updatePreferences}
+              currentUser={currentUser}
+              isGuest={isGuest}
+              onLogout={handleLogout}
+            />
+          )}
         </main>
 
         {/* BOTTOM NAV */}
         <nav className="fixed bottom-0 left-0 right-0 z-40 flex justify-center pointer-events-none">
-          <div className="w-full max-w-md bg-white/90 backdrop-blur-2xl border-t border-slate-100 px-8 py-5 flex justify-between items-center pointer-events-auto rounded-t-[32px] shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
-            <button onClick={() => setActiveTab('dashboard')} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'dashboard' ? 'text-[#3a3f85] scale-110' : 'text-slate-300'}`}>
-              <div className="text-2xl">{activeTab === 'dashboard' ? '🏠' : '🏚️'}</div>
-              <span className="text-[9px] font-black uppercase tracking-widest">Home</span>
-            </button>
-            <button onClick={() => setActiveTab('trends')} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'trends' ? 'text-[#3a3f85] scale-110' : 'text-slate-300'}`}>
-              <div className="text-2xl">{activeTab === 'trends' ? '📊' : '📈'}</div>
-              <span className="text-[9px] font-black uppercase tracking-widest">Trends</span>
-            </button>
-            <div className="w-16 h-1 w-1 px-1"></div>
-            <button onClick={() => setActiveTab('results')} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'results' ? 'text-[#3a3f85] scale-110' : 'text-slate-300'}`}>
-              <div className="text-2xl">{activeTab === 'results' ? '💎' : '🔍'}</div>
-              <span className="text-[9px] font-black uppercase tracking-widest">Result</span>
-            </button>
-            <button onClick={() => setActiveTab('profile')} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'profile' ? 'text-[#3a3f85] scale-110' : 'text-slate-300'}`}>
-              <div className="text-2xl">{activeTab === 'profile' ? '👤' : '⚙️'}</div>
-              <span className="text-[9px] font-black uppercase tracking-widest">Prefs</span>
-            </button>
+          <div className="w-full max-w-md bg-white/90 backdrop-blur-2xl border-t border-slate-100 px-6 py-4 flex justify-between items-center pointer-events-auto rounded-t-[28px] shadow-[0_-10px_40px_rgba(0,0,0,0.06)]">
+            {[
+              { id: "dashboard", icon: "🏠", label: "Home" },
+              { id: "trends", icon: "📊", label: "Trends" },
+              { id: "results", icon: "🔍", label: "Result" },
+              { id: "profile", icon: "⚙️", label: "Profile" },
+            ].map(tab => (
+              <button key={tab.id} onClick={() => {
+                setActiveTab(tab.id);
+                // Re-fetch history when going back to home or trends
+                if (tab.id === "dashboard" || tab.id === "trends") {
+                  setRefreshTick(t => t + 1);
+                }
+              }}
+                className={`flex flex-col items-center gap-1 transition-all ${activeTab === tab.id ? "text-[#3a3f85] scale-110" : "text-slate-300"}`}>
+                <div className="text-2xl">{tab.icon}</div>
+                <span className="text-[9px] font-black uppercase tracking-widest">{tab.label}</span>
+              </button>
+            ))}
           </div>
-
+          {/* Central scan fab */}
           <button
-            onClick={() => setActiveTab('scanner')}
-            className="absolute bottom-10 w-20 h-20 bg-gradient-to-br from-[#3a3f85] to-[#6c63ff] rounded-3xl flex items-center justify-center text-white shadow-[0_15px_30px_rgba(58,63,133,0.3)] border-4 border-white active:scale-90 active:rotate-3 transition-all pointer-events-auto z-50"
-          >
-            <div className="text-3xl font-bold">📸</div>
+            onClick={() => setActiveTab("scanner")}
+            className="absolute bottom-10 w-18 h-18 w-[72px] h-[72px] bg-gradient-to-br from-[#3a3f85] to-[#6c63ff] rounded-3xl flex items-center justify-center text-white shadow-[0_15px_30px_rgba(58,63,133,0.35)] border-4 border-white active:scale-90 transition-all pointer-events-auto z-50">
+            <span className="text-3xl">📸</span>
           </button>
         </nav>
       </div>
+
       <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*" />
     </div>
   );
