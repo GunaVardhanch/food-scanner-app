@@ -1,86 +1,75 @@
-# Food Scanner App
+# 🍏 NutriScanner (Food Scanner App)
 
-A comprehensive full-stack application that helps users make informed health decisions by scanning physical food products. 
-
-The system uses a state-of-the-art dual-pipeline approach (Barcode + Label OCR) and provides real-time personalized health insights, additive warnings, and healthy alternatives powered by an intelligent RAG (Retrieval-Augmented Generation) backend.
-
-## 🌟 Introduction
-
-NutriScanner (Food Scanner) allows users to scan the barcode or directly photograph the nutrition label/ingredients of any packaged food item. The core objective is not simply to display static nutritional facts, but to actively evaluate the health impact of the product. The system cross-references ingredients against an "Additives Expert" knowledge base, calculates a personalized health score according to user dietary preferences (e.g., Vegan, Gluten-Free, No Sugar), and optionally uses an LLM-driven RAG pipeline to interpret complex chemical additives or compliance warnings (e.g., FSSAI standards).
-
-Users must be able to log in, save their scan history, configure health preferences, and track their wellness trends over time.
+NutriScanner is a powerful app that helps you understand exactly what's inside your food. By scanning a product, it reveals hidden additives, calculates a personalized health score, and even warns you based on your dietary preferences (like Vegan, No Sugar, or Gluten-Free).
 
 ---
 
 ## 🛠 Tech Stack
 
-The application employs a decoupled architecture separating the user-facing Progressive Web App (PWA) from the heavy Python inference and data backends.
-
-### Frontend
-- **Framework:** Next.js (React 18)
-- **Styling:** Tailwind CSS (with custom utility classes and animations)
-- **Language:** JavaScript
-- **Hosting / Deployment:** Vercel
-
-### Backend
-- **Framework:** Flask (Python 3.11)
-- **Machine Learning & OCR:** 
-  - XGBoost (for tabular health scoring modeling)
-  - EasyOCR & OpenCV (for label text extraction)
-  - SHAP (for Explainable AI feature impacts)
-- **Data Processing:** NumPy, Ultralytics YOLO (if visual barcode detection is needed), PyZbar (for barcode decoding).
-- **Server:** Gunicorn
-- **Deployment:** Hugging Face Spaces (Docker containerized)
-
-### Database Layer
-- **SQLite (SQL):** Used for storing user profiles, scan histories, and user dietary preferences (`food_scanner.db`).
-- **Local JSON / TinyDB caches:** Used for persisting GTIN (barcode) lookup caches locally (`nutrition_cache.db` / `gtin_cache.db`).
+*   **Frontend (User Interface):** Next.js (React) styled with Tailwind CSS. Hosted on Vercel.
+*   **Backend (Brain):** Python Flask API. Hosted on Hugging Face Spaces.
+*   **Machine Learning & Processing:**
+    *   **XGBoost:** Calculates the customized Health Scores.
+    *   **EasyOCR & OpenCV:** Extracts text from photos of nutrition labels.
+    *   **NLP (Natural Language Processing):** Analyzes ingredient lists for harmful chemical additives and allergens.
+*   **Databases:** SQLite for user accounts, scan history, and preferences.
 
 ---
 
-## 🏗 System Architecture & Methodology
+## 🏗 How It Works (System Architecture)
 
-The backend employs a unique **Dual Scan Pipeline** to maximize successful product identification.
+The app uses a **Dual-Pipeline System**, meaning it can analyze a product in two different ways depending on what you scan.
 
-### 1. The Consumer Scan Request
-The user interacts with the Next.js frontend, configuring their dietary preferences in their profile (e.g. `Vegan: True`). When they want to analyze a product, they open the camera via the web app. The frontend captures an image natively via the browser (`getUserMedia`) and allows the user to select either **"Scan Barcode (Fast)"** or **"Scan Label (Deep Analysis)"**.
+### The Workflow Diagram
 
-The captured image is converted to a base64 string and POSTed to the Flask API.
+```mermaid
+flowchart TD
+    %% User Interaction
+    User((🧑 App User))-- "Takes Photo in App" --> App[📱 Next.js Frontend]
+    
+    %% Mode Selection in App
+    App -- "I scanned a Barcode 📦" --> BarcodeScan{Barcode Pipeline}
+    App -- "I scanned a Nutrition Label 🔬" --> LabelScan{Label Pipeline}
 
-### 2. The Analysis Pipelines
+    %% Barcode Flow (Fast)
+    BarcodeScan -- "Extracts GTIN" --> DB[(Nutrition Database)]
+    DB -- "Gets Ingredients & Nutrition Facts" --> Brain[🧠 The Assessment Engine]
+    
+    %% Label Flow (Deep)
+    LabelScan -- "Reads Text from Image" --> OCR[📸 EasyOCR Engine]
+    OCR -- "Extracts Sugar, Fat, Additives" --> Brain
 
-#### Pipeline A: Barcode Flow (`POST /api/scan`)
-This is the primary, fastest route.
-1. **Extraction:** The backend decodes the image and uses `pyzbar` to extract the GTIN (Global Trade Item Number).
-2. **Database Lookup:** The GTIN is queried against our local cache, and if not present, enriched via external aggregators (like OpenFoodFacts).
-3. **Data Retrieval:** Nutritional data (per 100g) and the RAW ingredient list string are passed down into the Scoring Engine.
+    %% The Brain Engine processing
+    subgraph Brain[🧠 The Assessment Engine]
+        direction TB
+        A[🧪 Additives Expert \n Finds INS codes & Preservatives]
+        B[📈 Health Scorer \n XGBoost Machine Learning]
+        C[⚙️ Preferences Checker \n e.g. 'Is it Vegan?']
+        D([Optional RAG AI \n Gives smart warnings])
+        
+        A & B & C & D -.-> Final[📊 Calculates Final Score]
+    end
 
-#### Pipeline B: Label / OCR Flow (`POST /api/scan-label`)
-This route is used when a barcode isn't available, or for complex Indian/regional products.
-1. **Computer Vision:** `EasyOCR` processes the image to extract raw text blocks.
-2. **NLP Extraction:** NER (Named Entity Recognition) regex parsers or lightweight ML models extract key fields (Sugar, Sodium, Proteins, etc.) and isolate the "Ingredients" text block from the noisy OCR output.
-3. **Product Correlation:** If a product name is provided by the user, the OCR text is cross-referenced with potential database matches.
+    %% Result back to user
+    Brain -- "Sends Red/Yellow/Green Score" --> UI[📱 Result Screen]
+    UI -- "Saves to History" --> UserDB[(User SQLite DB)]
+```
 
-### 3. The Assessment Engine 
-Regardless of which pipeline generated the raw nutritional data, the data flows into a unified evaluation engine:
+### 1. The Barcode Pipeline (Fast & Accurate)
+When you point your camera at a barcode:
+1. The app decodes the barcode line into a product number (GTIN).
+2. It looks up this number in our database to instantly grab the known nutrition facts and ingredients list.
+3. This exact data is sent into the Assessment Engine.
 
-1. **Additives Expert:** 
-   The raw ingredient string is passed to an NLP-based `AdditivesExpert`. It tokenizes the string and searches for hundreds of known chemical additives, preservatives (e.g., INS numbers, "Tartrazine"), and allergens. It calculates an "Additive Risk Impact" (Safe, Moderate Risk, High Risk).
-   
-2. **Health Score Ensemble (XGBoost):**
-   A trained XGBoost model takes the continuous features (Sugar (g), Fat (g), Calories) combined with the newly calculated `Additive Risk Impact` to project a raw baseline health score out of 10.
+### 2. The Label Pipeline (For unlisted products)
+When you photograph a physical nutrition label or ingredients list:
+1. **EasyOCR** (Computer Vision) reads the tiny text on the photo.
+2. Our **NLP System** cleans up the text, separating "Sugar: 10g" from the actual paragraph of ingredients.
+3. This extracted data is sent into the Assessment Engine.
 
-3. **Preference Application & Override Engine:**
-   The User ID token is checked against the local SQLite Database. If the user is marked as "Vegan", the engine scans the ingredient list for animal derivatives (milk, casein, whey, gelatin). If found, the system triggers a **hard override**, automatically forcing the product's health status to `RED (HARMFUL)` and appending an explanation warning. Similar overrides exist for Celiacs (Gluten free) or Diabetics (No Sugar).
-
-4. **Optional RAG Enrichment:**
-   If enabled via environment variables, the ingredient text is sent to an external LLM RAG pipeline to generate plain-english warnings ("Contains Artificial Colors linked to hyperactivity") and suggest healthy alternatives based on user history.
-
-### 4. Response & Frontend Visualization
-The backend synthesizes this data into a structured JSON payload:
-- Health Color (`GREEN` / `YELLOW` / `RED`)
-- Raw Score (x.x / 10)
-- Array of Flagged Additives + Risk Levels
-- Array of User Preference Warnings
-
-The Next.js app renders this data dynamically. It features a custom animated `ScoreReveal` overlay component that steps the user through the discoveries (Nutrition -> Additives -> Final Score). Finally, the backend logs the exact score, image metadata, and timestamp to the SQLite DB, instantly allowing the user to view this item populated in their "Recent Scans" dashboard tab.
+### 3. The Assessment Engine (The Brain)
+Regardless of how the data was gathered, the Engine does four things:
+1. **Additives Check:** It scans the ingredient text for hundreds of chemicals, artificial colors, and preservatives (like "Sodium Benzoate" or "INS 102"). It rates these from Safe to High-Risk.
+2. **Health Scoring:** An XGBoost Machine Learning model balances the bad stuff (additives, sugar, bad fats) against the good stuff (protein) to give a score out of 10.
+3. **Your Preferences:** The engine checks your profile. If you are Vegan and it found "Whey", it forces the score to RED (Harmful) and warns you.
+4. **Final Output:** The app shows you a beautiful Green, Yellow, or Red score, lists exactly what additives were found, and sometimes even gives you a healthy alternative idea!
