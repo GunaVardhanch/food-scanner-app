@@ -26,8 +26,11 @@ NUTRITION_NER_MODEL_DIR = os.path.join(MODEL_DIR, "nutrition_ner")
 # Optional: OCR-related models directory (if you want to keep them off C:)
 OCR_MODELS_DIR = os.path.join(MODEL_DIR, "ocr_models")
 
-# ── RAG side pipeline ─────────────────────────────────────────────────────────
-# Set RAG_ENABLED=true in environment to activate the offline RAG analysis.
-# Default: disabled — zero performance impact on the primary barcode pipeline.
-RAG_ENABLED = os.getenv("RAG_ENABLED", "false").lower() == "true"
+# ── RAG pipeline ──────────────────────────────────────────────────────────────
+# RAG is ONLY used in the label/ingredient photo scan pipeline (/api/scan-label).
+# The barcode scan (/api/scan) uses the XGBoost model + verified nutrition DB
+# for scoring — RAG must NOT override those verified scores.
+# Set RAG_LABEL_ENABLED=false to disable RAG even for label scans.
+RAG_ENABLED = False  # Barcode path: NEVER use RAG (score from XGBoost + DB)
+RAG_LABEL_ENABLED = os.getenv("RAG_LABEL_ENABLED", "true").lower() == "true"  # Label path only
 

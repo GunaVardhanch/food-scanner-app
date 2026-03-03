@@ -78,6 +78,11 @@ def _init_cache() -> None:
 
 _init_cache()
 
+# Absolute path to food_scanner.db (seeded by train_and_seed.py)
+_MAIN_DB_PATH = os.path.normpath(os.path.join(
+    os.path.abspath(os.path.dirname(__file__)), "..", "..", "food_scanner.db"
+))
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Public API
@@ -85,48 +90,10 @@ _init_cache()
 
 def get_product_by_gtin(gtin: str) -> Optional[Dict[str, Any]]:
     """
-    Look up a product by its GTIN (EAN-13 / UPC / EAN-8).
-
-    Parameters
-    ----------
-    gtin : str
-        The barcode string, e.g. ``"8901234567890"``.
-
-    Returns
-    -------
-    dict | None
-        Structured product information on success::
-
-            {
-                "gtin":               "8901234567890",
-                "product_name":       "Tomato Ketchup 200g",
-                "brand":              "BrandX",
-                "country":            "IN",
-                "ingredients":        ["tomato paste", "sugar", ...],
-                "nutrition_per_100g": {
-                    "energy_kcal":      110,
-                    "protein_g":        1.2,
-                    "carbohydrates_g":  24.5,
-                    "sugars_g":         22.0,
-                    "fat_g":            0.1,
-                    "fiber_g":          0.5,
-                    "sodium_mg":        800.0
-                },
-                "nutrition_per_serving": {
-                    "serving_size_g":   20,
-                    "energy_kcal":      22,
-                    ...
-                },
-                "source": "cache" | "openfoodfacts"
-            }
-
-        Returns ``None`` if the product is not found in any source.
-
-    Notes
-    -----
-    - The local SQLite cache is checked first (instant, no network).
-    - Results fetched from the API are written to the cache automatically.
-    - This function is STRICTLY non-ML; it never calls OCR or NLP.
+    Look up a product by GTIN. Lookup order:
+        1. gtin_cache (app/data/gtin_cache.db)  — fast repeat-lookup cache
+        2. nutrition_cache (food_scanner.db)     — seeded by train_and_seed.py
+        3. Open Food Facts API                   — network fallback
     """
     gtin = gtin.strip()
     if not gtin:
@@ -134,13 +101,19 @@ def get_product_by_gtin(gtin: str) -> Optional[Dict[str, Any]]:
 
     logger.info("GTIN lookup: %s", gtin)
 
-    # 1. Local cache
+    # 1. Fast dedup cache
     cached = _read_cache(gtin)
     if cached:
-        logger.info("GTIN lookup result: cache hit for %s", gtin)
+        logger.info("GTIN lookup result: gtin_cache hit for %s", gtin)
         return cached
 
-    # 2. Open Food Facts API
+    # 2. Seeded nutrition_cache in food_scanner.db
+    seeded = _read_nutrition_cache(gtin)
+    if seeded:
+        logger.info("GTIN lookup result: nutrition_cache hit for %s", gtin)
+        return seeded
+
+    # 3. Open Food Facts API
     off_result = _fetch_from_off(gtin)
     if off_result:
         _write_cache(gtin, off_result)
@@ -213,6 +186,37 @@ def _write_cache(gtin: str, product: Dict[str, Any]) -> None:
             conn.commit()
     except Exception as exc:
         logger.warning("Cache write error: %s", exc)
+
+
+def _read_nutrition_cache(gtin: str) -> Optional[Dict[str, Any]]:
+    """
+    Read from nutrition_cache in food_scanner.db (seeded by train_and_seed.py).
+    Each row stores the full product JSON in the 'data' column.
+    """
+    if not os.path.exists(_MAIN_DB_PATH):
+        logger.warning("nutrition_cache: food_scanner.db not found at %s", _MAIN_DB_PATH)
+        return None
+    try:
+        with sqlite3.connect(_MAIN_DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT data FROM nutrition_cache WHERE gtin = ?", (gtin,)
+            ).fetchone()
+        if not row:
+            return None
+        record = json.loads(row[0])
+        return {
+            "gtin":                  record.get("gtin", gtin),
+            "product_name":          record.get("product_name", "Unknown Product"),
+            "brand":                 record.get("brand"),
+            "country":               record.get("country", "IN"),
+            "ingredients":           record.get("ingredients", []),
+            "nutrition_per_100g":    record.get("nutrition_per_100g", {}),
+            "nutrition_per_serving": record.get("nutrition_per_serving", {}),
+            "source":                "seeded",
+        }
+    except Exception as exc:
+        logger.warning("nutrition_cache read error for %s: %s", gtin, exc)
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
