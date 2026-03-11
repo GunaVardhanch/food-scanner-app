@@ -388,6 +388,15 @@ def scan():
     else:
         healthy_alt = None
 
+    # ── Step 5c: XAI Explanations ───────────────────────────────────────────
+    global _xai_service
+    if _xai_service is None:
+        _xai_service = XAIService()
+        
+    xai_explanations = _xai_service.explain_score(
+        None, features, ["sugar_g", "additive_impact", "calories", "protein_g"]
+    )
+
     # ── Step 6: Return enriched response ─────────────────────────────────────
     response_body: Dict[str, Any] = {
         **product,
@@ -401,6 +410,7 @@ def scan():
         "preference_warnings":   preference_warnings,
         "active_preferences":    prefs,
         "scan_mode":             "barcode",
+        "xai":                   {"shap_impacts": xai_explanations},
     }
 
     # ── Step 7: Auto-save scan to history ────────────────────────────────────

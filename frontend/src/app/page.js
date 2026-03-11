@@ -657,6 +657,26 @@ export default function Home() {
                   </div>
                 )}
 
+                {/* XAI Insights */}
+                {analysisResult.xai && analysisResult.xai.shap_impacts && Object.keys(analysisResult.xai.shap_impacts).length > 0 && (
+                  <div className="mb-6">
+                    <p className="font-black text-slate-900 text-xs tracking-widest uppercase mb-3 px-1">AI Impact Analysis</p>
+                    <div className="space-y-3">
+                      {Object.entries(analysisResult.xai.shap_impacts).map(([feature, impact], i) => (
+                        <div key={i} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex justify-between items-center">
+                          <p className="font-black text-slate-900 text-sm">{feature}</p>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[10px] font-black ${impact < 0 ? "text-red-500" : "text-emerald-500"}`}>
+                              {impact > 0 ? "+" : ""}{impact.toFixed(1)}
+                            </span>
+                            <div className={`h-1.5 rounded-full ${impact < 0 ? "bg-red-400" : "bg-emerald-400"}`} style={{ width: `${Math.min(50, Math.abs(impact) * 15)}px` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Healthy alternative */}
                 {analysisResult.healthy_alternative && (
                   <div className="bg-emerald-50 rounded-[28px] p-6 border border-emerald-100 mb-6 shadow-sm">
