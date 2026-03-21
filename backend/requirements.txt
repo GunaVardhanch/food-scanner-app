@@ -13,3 +13,4 @@ transformers
 easyocr
 ultralytics
 pyzbar
+deep-translator

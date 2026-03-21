@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
+import { useTranslate } from "../../lib/translateContext";
 
 const API = typeof process.env.NEXT_PUBLIC_API_URL === "string"
     ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "")
@@ -214,6 +215,7 @@ function ScoreGraph({ trend }) {
 
 // ── MAIN TrendsView ──────────────────────────────────────────────────────────
 export default function TrendsView({ refreshTick, token, isGuest }) {
+    const { t } = useTranslate();
     const [analytics, setAnalytics] = useState(null);
     const [loading, setLoading] = useState(true);
 
@@ -231,11 +233,11 @@ export default function TrendsView({ refreshTick, token, isGuest }) {
     if (isGuest) {
         return (
             <div className="flex-1 px-5 pt-4 pb-24 overflow-y-auto">
-                <h2 className="text-2xl font-black text-gray-900 mb-6">Analytics</h2>
+                <h2 className="text-2xl font-black text-gray-900 mb-6">{t("Analytics")}</h2>
                 <div className="bg-gradient-to-br from-[#3a3f85]/10 to-[#6c63ff]/5 rounded-3xl p-10 text-center border-2 border-dashed border-[#6c63ff]/20">
                     <div className="text-5xl mb-4">📊</div>
-                    <p className="font-black text-slate-700 text-base mb-2">Sign in to see Analytics</p>
-                    <p className="text-slate-400 text-sm leading-relaxed">Your health trends, score history, and additive analysis are only available for registered users.</p>
+                    <p className="font-black text-slate-700 text-base mb-2">{t("Sign in to see Analytics")}</p>
+                    <p className="text-slate-400 text-sm leading-relaxed">{t("Your health trends, score history, and additive analysis are only available for registered users.")}</p>
                 </div>
             </div>
         );
@@ -273,13 +275,13 @@ export default function TrendsView({ refreshTick, token, isGuest }) {
 
     return (
         <div className="flex-1 px-5 pt-4 pb-24 overflow-y-auto">
-            <h2 className="text-2xl font-black text-gray-900 leading-tight mb-6">Analytics</h2>
+            <h2 className="text-2xl font-black text-gray-900 leading-tight mb-6">{t("Analytics")}</h2>
 
             {/* Average Score Card */}
             <div className="bg-gradient-to-br from-[#3a3f85] to-[#6c63ff] rounded-3xl p-6 text-white shadow-xl mb-5 relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full translate-x-10 -translate-y-10" />
                 <div className="relative z-10">
-                    <p className="text-white/60 font-black text-xs uppercase tracking-widest mb-1">Average Health Score</p>
+                    <p className="text-white/60 font-black text-xs uppercase tracking-widest mb-1">{t("Average Health Score")}</p>
                     <div className="flex items-baseline gap-2">
                         <span className="text-5xl font-black">{analytics.avg_score ?? "–"}</span>
                         <span className="text-xl font-bold text-white/40">/10</span>
@@ -301,7 +303,7 @@ export default function TrendsView({ refreshTick, token, isGuest }) {
             {/* ══ SCORE HISTORY GRAPH ══ */}
             <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm mb-5">
                 <div className="flex items-center justify-between mb-1">
-                    <p className="font-black text-gray-900 text-sm uppercase tracking-widest">Score History</p>
+                    <p className="font-black text-gray-900 text-sm uppercase tracking-widest">{t("Score History")}</p>
                     <span className="text-[9px] font-black text-slate-400 bg-slate-100 px-2 py-1 rounded-full uppercase tracking-wide">
                         {todayTrend.length > 0 ? `${todayTrend.length} scans today` : `Last ${graphTrend.length} scans`}
                     </span>
@@ -315,7 +317,7 @@ export default function TrendsView({ refreshTick, token, isGuest }) {
             {/* Daily Average bar chart */}
             {dailyAvg.length > 0 && (
                 <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm mb-5">
-                    <p className="font-black text-gray-900 text-sm uppercase tracking-widest mb-4">Daily Average</p>
+                    <p className="font-black text-gray-900 text-sm uppercase tracking-widest mb-4">{t("Daily Average")}</p>
                     <div className="space-y-2.5">
                         {dailyAvg.slice(-7).map((d, i) => (
                             <div key={i} className="flex items-center gap-3">
@@ -337,7 +339,7 @@ export default function TrendsView({ refreshTick, token, isGuest }) {
 
             {/* Top Flagged Additives */}
             <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm">
-                <p className="font-black text-gray-900 text-sm uppercase tracking-widest mb-4">Top Flagged Additives</p>
+                <p className="font-black text-gray-900 text-sm uppercase tracking-widest mb-4">{t("Top Flagged Additives")}</p>
                 <div className="space-y-3">
                     {analytics.top_additives && analytics.top_additives.length > 0 ? (
                         analytics.top_additives.map((item, i) => (
@@ -353,7 +355,7 @@ export default function TrendsView({ refreshTick, token, isGuest }) {
                         ))
                     ) : (
                         <p className="text-center text-slate-400 text-xs italic py-4">
-                            No recurring additives yet — scan more products!
+                            {t("No recurring additives yet — scan more products!")}
                         </p>
                     )}
                 </div>
