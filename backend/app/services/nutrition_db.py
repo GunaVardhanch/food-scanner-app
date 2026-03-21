@@ -43,6 +43,9 @@ _CACHE_DB_PATH = os.path.join(_DB_DIR, "gtin_cache.db")
 _OFF_BASE = "https://world.openfoodfacts.org/api/v2/product"
 _OFF_USER_AGENT = "FoodScannerApp/2.0 (India; contact@foodscanner.app)"
 _OFF_TIMEOUT = 10  # seconds
+
+# Fix 4: Cache TTL — re-fetch from OFF after this many seconds (30 days)
+_CACHE_TTL_SECONDS = 60 * 60 * 24 * 30
 _OFF_FIELDS = (
     "product_name,product_name_en,product_name_hi,product_name_mr,"
     "product_name_ta,product_name_te,product_name_kn,product_name_gu,"
@@ -129,7 +132,11 @@ def get_product_by_gtin(gtin: str) -> Optional[Dict[str, Any]]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _read_cache(gtin: str) -> Optional[Dict[str, Any]]:
-    """Return cached product dict or None."""
+    """
+    Return cached product dict or None.
+    Fix 4: Entries older than _CACHE_TTL_SECONDS are treated as expired
+    and deleted so the caller falls through to a fresh OFF API fetch.
+    """
     try:
         with sqlite3.connect(_CACHE_DB_PATH) as conn:
             row = conn.execute(
@@ -139,7 +146,15 @@ def _read_cache(gtin: str) -> Optional[Dict[str, Any]]:
             return None
 
         (gtin_, name, brand, country, ing_json,
-         n100_json, nsrv_json, srv_g, source, _fetched) = row
+         n100_json, nsrv_json, srv_g, source, fetched_at) = row
+
+        # TTL check — expire stale entries
+        if fetched_at and (int(time.time()) - int(fetched_at)) > _CACHE_TTL_SECONDS:
+            logger.info("Cache entry for %s is stale (>30 days), expiring.", gtin)
+            with sqlite3.connect(_CACHE_DB_PATH) as conn:
+                conn.execute("DELETE FROM gtin_cache WHERE gtin = ?", (gtin,))
+                conn.commit()
+            return None
 
         return {
             "gtin": gtin_,
@@ -263,7 +278,10 @@ def _normalise_off_product(gtin: str, p: Dict[str, Any]) -> Dict[str, Any]:
 
     # ── Nutrition per 100 g ──────────────────────────────────────────────────
     per_100g: Dict[str, Any] = {
-        "energy_kcal":     _safe_float(n.get("energy-kcal_100g") or n.get("energy_100g")),
+        # Fix 6: energy_100g in OFF is kJ, not kcal. Always prefer the
+        # explicit energy-kcal_100g field. Only fall back to energy_100g
+        # if the kcal field is truly absent, and convert kJ → kcal.
+        "energy_kcal":     _safe_float(n.get("energy-kcal_100g")) or _kj_to_kcal(n.get("energy_100g")),
         "protein_g":       _safe_float(n.get("proteins_100g")),
         "carbohydrates_g": _safe_float(n.get("carbohydrates_100g")),
         "sugars_g":        _safe_float(n.get("sugars_100g")),
@@ -291,7 +309,10 @@ def _normalise_off_product(gtin: str, p: Dict[str, Any]) -> Dict[str, Any]:
 
     # ── Ingredients ─────────────────────────────────────────────────────────
     ing_text: str = p.get("ingredients_text", "") or ""
-    ingredients = [i.strip() for i in ing_text.split(",") if i.strip()] or []
+    # Fix 5: Smart split that respects parentheses so sub-ingredients like
+    # "Vegetable Oil (Palm, Sunflower)" stay as one item instead of splitting
+    # into "Vegetable Oil (Palm" and "Sunflower)".
+    ingredients = _split_ingredients(ing_text)
 
     # ── Country ─────────────────────────────────────────────────────────────
     countries = p.get("countries_tags", [])
@@ -371,3 +392,60 @@ def _parse_serving_size_g(raw: str) -> Optional[float]:
     if m:
         return _safe_float(m.group(1))
     return None
+
+
+def _kj_to_kcal(value: Any) -> Optional[float]:
+    """
+    Fix 6: Convert kilojoules to kilocalories (1 kcal = 4.184 kJ).
+    Used when OFF only provides energy_100g (kJ) and not energy-kcal_100g.
+    Returns None if value is None or not numeric.
+    """
+    f = _safe_float(value)
+    if f is None:
+        return None
+    return round(f / 4.184, 1)
+
+
+def _split_ingredients(ing_text: str) -> list:
+    """
+    Fix 5: Split an ingredients string on commas while respecting
+    parentheses, so sub-ingredients like "Vegetable Oil (Palm, Sunflower)"
+    are kept as a single item.
+
+    Examples
+    --------
+    "Sugar, Wheat Flour, Oil (Palm, Sunflower), Salt"
+    → ["Sugar", "Wheat Flour", "Oil (Palm, Sunflower)", "Salt"]
+    """
+    import re
+    if not ing_text:
+        return []
+
+    items = []
+    depth = 0
+    current = []
+
+    for char in ing_text:
+        if char in ("(", "["):
+            depth += 1
+            current.append(char)
+        elif char in (")", "]"):
+            depth = max(0, depth - 1)
+            current.append(char)
+        elif char == "," and depth == 0:
+            token = "".join(current).strip()
+            # Strip leading asterisks/bullets used on some labels
+            token = re.sub(r"^[\*\-\•]+\s*", "", token)
+            if token:
+                items.append(token)
+            current = []
+        else:
+            current.append(char)
+
+    # Last item
+    token = "".join(current).strip()
+    token = re.sub(r"^[\*\-\•]+\s*", "", token)
+    if token:
+        items.append(token)
+
+    return items

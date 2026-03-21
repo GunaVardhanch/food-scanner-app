@@ -1,7 +1,9 @@
 "use client";
 import { useState, useEffect } from "react";
+import { useTranslate } from "../../lib/translateContext";
 
 export default function HistoryFeed({ refreshTick, token, isGuest }) {
+    const { t } = useTranslate();
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -25,8 +27,8 @@ export default function HistoryFeed({ refreshTick, token, isGuest }) {
         return (
             <div className="bg-gradient-to-br from-[#3a3f85]/10 to-[#6c63ff]/5 rounded-3xl p-8 text-center border-2 border-dashed border-[#6c63ff]/20">
                 <div className="text-4xl mb-3">🔒</div>
-                <p className="font-black text-slate-700 text-sm mb-1">Sign in to view history</p>
-                <p className="text-slate-400 text-xs">Guest mode only shows scan results.<br />Create an account to track your health over time.</p>
+                <p className="font-black text-slate-700 text-sm mb-1">{t("Sign in to view history")}</p>
+                <p className="text-slate-400 text-xs">{t("Guest mode only shows scan results.")}<br />{t("Create an account to track your health over time.")}</p>
             </div>
         );
     }
@@ -48,7 +50,7 @@ export default function HistoryFeed({ refreshTick, token, isGuest }) {
     if (history.length === 0) return (
         <div className="bg-white rounded-3xl p-8 text-center border-2 border-dashed border-slate-200">
             <div className="text-4xl mb-3">📭</div>
-            <p className="text-slate-400 text-sm font-semibold">No scans yet. Start scanning food labels!</p>
+            <p className="text-slate-400 text-sm font-semibold">{t("No scans yet. Start scanning food labels!")}</p>
         </div>
     );
 

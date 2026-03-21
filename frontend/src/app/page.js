@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { useTranslation } from "react-i18next";
-import "../i18n";
+import { useTranslate } from "../lib/translateContext";
 import SplashScreen from "./components/SplashScreen";
 import WelcomeScreen from "./components/WelcomeScreen";
 import HistoryFeed from "./components/HistoryFeed";
@@ -155,11 +154,12 @@ const ScoreReveal = ({ result, onDone }) => {
 
 // ── SettingsView ───────────────────────────────────────────────────────────────
 const SettingsView = ({ preferences, onUpdate, currentUser, isGuest, onLogout }) => {
+  const { t } = useTranslate();
   const toggles = [
-    { id: "vegan", label: "Vegan", emoji: "🌱", desc: "Flag animal-derived ingredients" },
-    { id: "no_sugar", label: "No Sugar", emoji: "🚫", desc: "Strict alerts for sucrose/syrups" },
-    { id: "low_sodium", label: "Low Sodium", emoji: "🧂", desc: "Flag high salt content" },
-    { id: "gluten_free", label: "Gluten Free", emoji: "🌾", desc: "Alert for wheat, barley, rye" },
+    { id: "vegan", label: t("Vegan"), emoji: "🌱", desc: t("Flag animal-derived ingredients") },
+    { id: "no_sugar", label: t("No Sugar"), emoji: "🚫", desc: t("Strict alerts for sucrose/syrups") },
+    { id: "low_sodium", label: t("Low Sodium"), emoji: "🧂", desc: t("Flag high salt content") },
+    { id: "gluten_free", label: t("Gluten Free"), emoji: "🌾", desc: t("Alert for wheat, barley, rye") },
   ];
   return (
     <div className="flex-1 px-5 pt-4 pb-24 overflow-y-auto">
@@ -171,48 +171,48 @@ const SettingsView = ({ preferences, onUpdate, currentUser, isGuest, onLogout })
           </div>
           <div>
             <p className={`font-black text-base ${isGuest ? "text-slate-600" : "text-white"}`}>
-              {isGuest ? "Guest User" : currentUser?.name || "User"}
+              {isGuest ? t("Guest User") : currentUser?.name || "User"}
             </p>
             <p className={`text-xs mt-0.5 ${isGuest ? "text-slate-400" : "text-white/60"}`}>
-              {isGuest ? "Limited access — sign in to unlock all features" : currentUser?.email}
+              {isGuest ? t("Limited access — sign in to unlock all features") : currentUser?.email}
             </p>
           </div>
         </div>
         {!isGuest && (
           <button onClick={onLogout}
             className="mt-4 w-full py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-black rounded-2xl uppercase tracking-widest transition-all">
-            Sign Out
+            {t("Sign Out")}
           </button>
         )}
       </div>
 
-      <h2 className="text-xl font-black text-gray-900 mb-4">Preferences</h2>
+      <h2 className="text-xl font-black text-gray-900 mb-4">{t("Preferences")}</h2>
       <div className="space-y-3">
-        {toggles.map(t => (
-          <div key={t.id} className={`bg-white rounded-3xl p-5 border border-slate-100 shadow-sm flex items-center justify-between transition-all ${isGuest ? "opacity-50 pointer-events-none" : ""}`}>
+        {toggles.map(tog => (
+          <div key={tog.id} className={`bg-white rounded-3xl p-5 border border-slate-100 shadow-sm flex items-center justify-between transition-all ${isGuest ? "opacity-50 pointer-events-none" : ""}`}>
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-2xl">{t.emoji}</div>
+              <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-2xl">{tog.emoji}</div>
               <div>
-                <p className="font-black text-gray-900 text-sm">{t.label}</p>
-                <p className="text-gray-400 text-xs">{t.desc}</p>
+                <p className="font-black text-gray-900 text-sm">{tog.label}</p>
+                <p className="text-gray-400 text-xs">{tog.desc}</p>
               </div>
             </div>
             <button
-              onClick={() => !isGuest && onUpdate({ ...preferences, [t.id]: !preferences[t.id] })}
-              className={`w-14 h-8 rounded-full transition-all flex items-center px-1 ${preferences[t.id] ? "bg-emerald-500 justify-end" : "bg-slate-200 justify-start"}`}>
+              onClick={() => !isGuest && onUpdate({ ...preferences, [tog.id]: !preferences[tog.id] })}
+              className={`w-14 h-8 rounded-full transition-all flex items-center px-1 ${preferences[tog.id] ? "bg-emerald-500 justify-end" : "bg-slate-200 justify-start"}`}>
               <div className="w-6 h-6 bg-white rounded-full shadow-md" />
             </button>
           </div>
         ))}
       </div>
-      {isGuest && <p className="text-center text-slate-400 text-xs mt-4 italic">Sign in to save preferences</p>}
+      {isGuest && <p className="text-center text-slate-400 text-xs mt-4 italic">{t("Sign in to save preferences")}</p>}
     </div>
   );
 };
 
 // ── MAIN APP ───────────────────────────────────────────────────────────────────
 export default function Home() {
-  const { i18n } = useTranslation();
+  const { lang, changeLang, t, LANGUAGES } = useTranslate();
   const [appPhase, setAppPhase] = useState("splash"); // splash→welcome→app
   const [currentUser, setCurrentUser] = useState(null);
   const [token, setToken] = useState(undefined); // undefined = not yet resolved from localStorage
@@ -231,6 +231,24 @@ export default function Home() {
   const [preferences, setPreferences] = useState({ vegan: false, no_sugar: false, low_sodium: false, gluten_free: false });
   const [mounted, setMounted] = useState(false);
   const [scanMode, setScanMode] = useState("barcode"); // "barcode" | "label"
+  const [showManualEntry, setShowManualEntry] = useState(false);
+  const [manualBarcode, setManualBarcode] = useState("");
+  const [notFoundPrompt, setNotFoundPrompt] = useState(null); // { gtin } | null
+
+  // ── Label scan multi-step state ───────────────────────────────────────────
+  // step: "name" → "ingredients" → "nutrition" (optional)
+  const [labelStep, setLabelStep] = useState("name");
+  const [labelProductName, setLabelProductName] = useState("");
+  const [labelIngredientsImage, setLabelIngredientsImage] = useState(null);
+  const [labelNutritionImage, setLabelNutritionImage] = useState(null);
+
+  const resetLabelFlow = () => {
+    setLabelStep("name");
+    setLabelProductName("");
+    setLabelIngredientsImage(null);
+    setLabelNutritionImage(null);
+    setCapturedImage(null);
+  };
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -341,24 +359,19 @@ export default function Home() {
         data = await res.json();
 
         if (!res.ok || data.status === "error" || data.status === "partial") {
-          const msg =
-            data.message === "barcode_not_found"
-              ? "No barcode detected. Make sure the barcode is clear and well-lit, or switch to 'Scan Label' mode."
-              : data.message === "nutrition_unavailable"
-                ? `Barcode read (${data.gtin}) but product not in database. Try 'Scan Label' mode for this product.`
-                : data.error || "Barcode scan failed.";
+          if (data.message === "nutrition_unavailable") {
+            setNotFoundPrompt({ gtin: data.gtin });
+            return; // handled by modal — don't alert
+          }
+          const msg = data.message === "barcode_not_found"
+            ? "No barcode detected. Make sure the barcode is clear and well-lit."
+            : data.error || "Barcode scan failed.";
           throw new Error(msg);
         }
       } else {
-        // ── Label path: OCR + RAG pipeline ─────────────────────────────
-        const productName = prompt("Enter the product name (helps the RAG engine):") || "Unknown Product";
-        res = await fetch(`${API}/api/scan-label`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ image: capturedImage, product_name: productName }),
-        });
-        data = await res.json();
-        if (!res.ok && !data.health_score) throw new Error(data.error || "Label analysis failed.");
+        // ── Label path: now handled by handleLabelAnalyze ───────────────
+        // This branch should not be reached in normal flow
+        throw new Error("Use the label scan steps to analyse a label.");
       }
 
       setAnalysisResult(data);
@@ -379,6 +392,79 @@ export default function Home() {
     // ✅ Refresh history + trends AFTER reveal animation completes
     // (scan is guaranteed saved to DB by now)
     setRefreshTick(t => t + 1);
+  };
+
+  const handleManualBarcodeSubmit = async () => {
+    const gtin = manualBarcode.trim().replace(/\s/g, "");
+    if (!gtin || !/^\d{8,14}$/.test(gtin)) {
+      alert("Please enter a valid barcode number (8–14 digits).");
+      return;
+    }
+    setShowManualEntry(false);
+    setManualBarcode("");
+    setIsAnalyzing(true);
+    setAnalysisStatus("Querying nutrition database…");
+    const t1 = setTimeout(() => setAnalysisStatus("Scoring with health model…"), 2500);
+    try {
+      const headers = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch(`${API}/api/scan`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ gtin }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.status === "error") {
+        if (data.message === "nutrition_unavailable") {
+          setNotFoundPrompt({ gtin });
+          return;
+        }
+        throw new Error(data.error || "Barcode lookup failed.");
+      }
+      setAnalysisResult(data);
+      setShowReveal(true);
+    } catch (err) {
+      alert(err.message || "Failed to connect to the backend.");
+    } finally {
+      setIsAnalyzing(false);
+      setAnalysisStatus("");
+      clearTimeout(t1);
+    }
+  };
+
+  // ── Label scan: final submit (called at nutrition step or on skip) ──────────
+  const handleLabelAnalyze = async (nutritionImg) => {
+    if (!labelIngredientsImage) return;
+    setIsAnalyzing(true);
+    setAnalysisStatus("Running OCR on ingredients…");
+    const t1 = setTimeout(() => setAnalysisStatus("Identifying additives…"), 3000);
+    const t2 = setTimeout(() => setAnalysisStatus("RAG intelligence scoring…"), 7000);
+    try {
+      const headers = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const body = {
+        image: labelIngredientsImage,
+        product_name: labelProductName || "Unknown Product",
+      };
+      if (nutritionImg) body.nutrition_image = nutritionImg;
+      const res = await fetch(`${API}/api/scan-label`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok && !data.health_score) throw new Error(data.error || "Label analysis failed.");
+      setAnalysisResult(data);
+      setShowReveal(true);
+    } catch (err) {
+      alert(err.message || "Failed to connect to the backend.");
+    } finally {
+      setIsAnalyzing(false);
+      setAnalysisStatus("");
+      clearTimeout(t1);
+      clearTimeout(t2);
+      resetLabelFlow();
+    }
   };
 
   const updatePreferences = newPrefs => {
@@ -402,6 +488,43 @@ export default function Home() {
       <div className="max-wrapper relative min-h-screen flex flex-col">
         {showReveal && analysisResult && <ScoreReveal result={analysisResult} onDone={handleRevealDone} />}
 
+        {/* ── Not-found bottom sheet — prompts user to scan label instead ── */}
+        {notFoundPrompt && (
+          <div className="fixed inset-0 z-50 flex items-end justify-center">
+            <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={() => setNotFoundPrompt(null)} />
+            <div className="relative w-full max-w-md bg-white rounded-t-[36px] px-6 pt-6 pb-10 shadow-2xl animate-slide-up">
+              <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-6" />
+              <div className="flex items-start gap-4 mb-6">
+                <div className="w-12 h-12 rounded-2xl bg-amber-100 flex items-center justify-center text-2xl shrink-0">🔍</div>
+                <div>
+                  <p className="font-black text-slate-900 text-base leading-tight">{t("Product not in database")}</p>
+                  <p className="text-slate-400 text-xs mt-1">
+                    {t("Barcode")} <span className="font-black text-slate-600">{notFoundPrompt.gtin}</span> {t("was read but has no nutrition data yet.")}
+                  </p>
+                </div>
+              </div>
+              <p className="text-slate-500 text-sm mb-6">
+                {t("Scan the nutrition label on the back of the product — our RAG AI will analyse it directly.")}
+              </p>
+              <button
+                onClick={() => {
+                  setNotFoundPrompt(null);
+                  setScanMode("label");
+                  setCapturedImage(null);
+                  setActiveTab("scanner");
+                }}
+                className="w-full h-14 bg-gradient-to-r from-[#3a3f85] to-[#6c63ff] text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg active:scale-95 transition-all mb-3">
+                {t("📸 Scan Nutrition Label")}
+              </button>
+              <button
+                onClick={() => setNotFoundPrompt(null)}
+                className="w-full h-11 text-slate-400 font-black text-xs uppercase tracking-widest">
+                {t("Dismiss")}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* TOP BAR */}
         <header className="sticky top-0 z-40 w-full flex justify-between items-center px-5 py-3.5 bg-white/90 backdrop-blur-md border-b border-slate-100">
           <div className="flex items-center gap-3">
@@ -421,11 +544,11 @@ export default function Home() {
             </div>
             <div>
               <p className="font-black text-gray-900 text-sm leading-none">NutriScanner</p>
-              <select onChange={e => i18n.changeLanguage(e.target.value)} value={i18n.language}
+              <select onChange={e => changeLang(e.target.value)} value={lang}
                 className="text-[10px] font-bold bg-transparent border-none outline-none text-[#3a3f85] cursor-pointer mt-0.5">
-                <option value="en">English</option>
-                <option value="hi">हिन्दी</option>
-                <option value="mr">मराठी</option>
+                {LANGUAGES.map(l => (
+                  <option key={l.code} value={l.code}>{l.native}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -433,7 +556,7 @@ export default function Home() {
             {isGuest && (
               <button onClick={() => setAppPhase("welcome")}
                 className="text-[10px] font-black bg-[#3a3f85] text-white px-3 py-1.5 rounded-xl uppercase tracking-wide">
-                Sign In
+                {t("Sign In")}
               </button>
             )}
             {currentUser && (
@@ -451,10 +574,10 @@ export default function Home() {
               <div className="w-14 h-14 rounded-2xl bg-slate-900 flex items-center justify-center shadow-xl text-3xl">👋</div>
               <div>
                 <p className="text-xl font-black text-gray-900">
-                  {isGuest ? "Hello, Guest!" : `Hello, ${currentUser?.name?.split(" ")[0] || "there"}!`}
+                  {isGuest ? t("Hello, Guest!") : `${t("Hello,")} ${currentUser?.name?.split(" ")[0] || "there"}!`}
                 </p>
                 <p className="text-slate-400 text-sm mt-0.5">
-                  {isGuest ? "Scan mode active" : "Track your food health"}
+                  {isGuest ? t("Scan mode active") : t("Track your food health")}
                 </p>
               </div>
             </div>
@@ -462,14 +585,14 @@ export default function Home() {
             <button onClick={() => setActiveTab("scanner")}
               className="w-full bg-gradient-to-r from-[#3a3f85] to-[#6610f2] rounded-3xl p-6 flex justify-between items-center cursor-pointer active:scale-[0.98] transition-all shadow-xl shadow-blue-500/15 mb-6 border border-white/10 group">
               <div>
-                <p className="text-white font-black text-xl leading-tight group-hover:translate-x-1 transition-transform">Scan Now</p>
-                <p className="text-white/60 text-sm mt-1">Point camera at barcode or label</p>
+                <p className="text-white font-black text-xl leading-tight group-hover:translate-x-1 transition-transform">{t("Scan Now")}</p>
+                <p className="text-white/60 text-sm mt-1">{t("Point camera at barcode or label")}</p>
               </div>
               <div className="w-14 h-14 bg-white/15 backdrop-blur-md rounded-2xl flex items-center justify-center border border-white/20 group-hover:rotate-6 transition-transform text-3xl">📸</div>
             </button>
 
             <div className="flex justify-between items-center mb-3 px-1">
-              <p className="font-black text-slate-900 text-xs tracking-widest uppercase">Recent Scans</p>
+              <p className="font-black text-slate-900 text-xs tracking-widest uppercase">{t("Recent Scans")}</p>
               {!isGuest && refreshTick > 0 && (
                 <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">✓ Updated</span>
               )}
@@ -485,99 +608,308 @@ export default function Home() {
           {/* SCANNER */}
           {activeTab === "scanner" && (
             <div className="flex-1 flex flex-col pb-28 px-5 pt-5">
-              <p className="font-black text-slate-900 text-xl tracking-tight mb-1">Scan Product</p>
+              <p className="font-black text-slate-900 text-xl tracking-tight mb-1">{t("Scan Product")}</p>
 
               {/* ── Mode selector pill ── */}
               <div className="flex gap-2 mb-5 bg-slate-100 rounded-2xl p-1">
                 <button
                   id="mode-barcode"
-                  onClick={() => { setScanMode("barcode"); setCapturedImage(null); }}
+                  onClick={() => { setScanMode("barcode"); setCapturedImage(null); setShowManualEntry(false); setManualBarcode(""); }}
                   className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${scanMode === "barcode"
                     ? "bg-slate-900 text-white shadow-lg"
                     : "text-slate-400 hover:text-slate-600"
                     }`}>
-                  <span>📦</span> Scan Barcode
+                  <span>📦</span> {t("Scan Barcode")}
                 </button>
                 <button
                   id="mode-label"
-                  onClick={() => { setScanMode("label"); setCapturedImage(null); }}
+                  onClick={() => { setScanMode("label"); setCapturedImage(null); setShowManualEntry(false); setManualBarcode(""); resetLabelFlow(); }}
                   className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${scanMode === "label"
                     ? "bg-gradient-to-r from-[#3a3f85] to-[#6c63ff] text-white shadow-lg"
                     : "text-slate-400 hover:text-slate-600"
                     }`}>
-                  <span>🔬</span> Scan Label
+                  <span>🔬</span> {t("Scan Label")}
                 </button>
               </div>
 
-              {/* Mode hint */}
-              <p className="text-slate-400 text-[10px] font-bold mb-4 text-center uppercase tracking-widest">
-                {scanMode === "barcode"
-                  ? "📦 Point at the barcode — fast & accurate via health model"
-                  : "🔬 Photo the nutrition / ingredient label — RAG AI deep analysis"}
-              </p>
-
-              <div className="flex-1 flex items-center justify-center">
-                <div className="relative w-full aspect-[9/12] bg-slate-900 rounded-[36px] shadow-2xl p-1.5 ring-8 ring-slate-50">
-                  <canvas ref={canvasRef} className="hidden" />
-                  <div className="relative h-full w-full bg-slate-800 rounded-[30px] overflow-hidden flex items-center justify-center border border-white/10">
-                    {!capturedImage
-                      ? <video ref={videoRef} autoPlay playsInline muted className="object-cover w-full h-full" />
-                      : <img src={capturedImage} alt="Captured" className="object-cover w-full h-full" />
-                    }
-                    {/* Scan overlay line */}
-                    {!capturedImage && (
-                      <div className="absolute inset-0 pointer-events-none">
-                        <div className="scanner-line" />
-                        <div className="absolute inset-8 border-2 border-dashed border-white/20 rounded-3xl" />
+              {/* ── BARCODE MODE: hint + manual entry + camera ── */}
+              {scanMode === "barcode" && (<>
+                <p className="text-slate-400 text-[10px] font-bold mb-2 text-center uppercase tracking-widest">
+                  {t("📦 Point at the barcode — fast & accurate via health model")}
+                </p>
+                <button
+                  onClick={() => { setShowManualEntry(v => !v); setManualBarcode(""); }}
+                  className="mb-4 mx-auto flex items-center gap-1.5 text-[10px] font-black text-[#6c63ff] uppercase tracking-widest">
+                  ⌨️ {showManualEntry ? t("Close manual entry") : t("Or type barcode number")}
+                </button>
+                <div className="flex-1 flex items-center justify-center">
+                  <div className="relative w-full aspect-[9/12] bg-slate-900 rounded-[36px] shadow-2xl p-1.5 ring-8 ring-slate-50">
+                    <canvas ref={canvasRef} className="hidden" />
+                    <div className="relative h-full w-full bg-slate-800 rounded-[30px] overflow-hidden flex items-center justify-center border border-white/10">
+                      {!capturedImage
+                        ? <video ref={videoRef} autoPlay playsInline muted className="object-cover w-full h-full" />
+                        : <img src={capturedImage} alt="Captured" className="object-cover w-full h-full" />
+                      }
+                      {!capturedImage && (
+                        <div className="absolute inset-0 pointer-events-none">
+                          <div className="scanner-line" />
+                          <div className="absolute inset-8 border-2 border-dashed border-white/20 rounded-3xl" />
+                        </div>
+                      )}
+                      {showManualEntry && (
+                        <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center z-30 rounded-[30px] px-6 gap-4">
+                          <p className="text-white font-black text-sm uppercase tracking-widest text-center">{t("Enter barcode number")}</p>
+                          <input
+                            type="tel" inputMode="numeric" pattern="[0-9]*"
+                            placeholder={t("e.g. 8901030706615")}
+                            value={manualBarcode}
+                            onChange={e => setManualBarcode(e.target.value.replace(/\D/g, ""))}
+                            onKeyDown={e => e.key === "Enter" && handleManualBarcodeSubmit()}
+                            maxLength={14}
+                            className="w-full h-14 bg-white/10 border-2 border-white/30 focus:border-[#6c63ff] rounded-2xl text-white text-center text-lg font-black tracking-widest outline-none placeholder:text-white/30 transition-all"
+                            autoFocus
+                          />
+                          <button onClick={handleManualBarcodeSubmit}
+                            className="w-full h-12 bg-gradient-to-r from-[#3a3f85] to-[#6c63ff] text-white rounded-2xl font-black text-xs uppercase tracking-widest active:scale-95 transition-all shadow-lg">
+                            {t("Look Up Barcode 🔍")}
+                          </button>
+                          <button onClick={() => { setShowManualEntry(false); setManualBarcode(""); }}
+                            className="text-white/40 text-[10px] font-black uppercase tracking-widest">
+                            {t("Cancel")}
+                          </button>
+                        </div>
+                      )}
+                      <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-4 px-8 z-20">
+                        {capturedImage ? (
+                          <button onClick={() => setCapturedImage(null)}
+                            className="flex-1 h-12 bg-white/20 backdrop-blur border border-white/40 text-white text-xs font-black rounded-2xl active:scale-95 transition-all">
+                            ↺ Retake
+                          </button>
+                        ) : (
+                          <button onClick={takePhoto}
+                            className="w-20 h-20 bg-white rounded-full shadow-2xl active:scale-90 transition-all flex items-center justify-center border-8 border-white/20">
+                            <div className="w-12 h-12 rounded-full border-4 border-slate-900" />
+                          </button>
+                        )}
                       </div>
-                    )}
-                    {/* Bottom buttons */}
-                    <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-4 px-8 z-20">
-                      {capturedImage ? (
-                        <button onClick={() => setCapturedImage(null)}
-                          className="flex-1 h-12 bg-white/20 backdrop-blur border border-white/40 text-white text-xs font-black rounded-2xl active:scale-95 transition-all">
-                          ↺ Retake
-                        </button>
-                      ) : (
-                        <button onClick={takePhoto}
-                          className="w-20 h-20 bg-white rounded-full shadow-2xl active:scale-90 transition-all flex items-center justify-center border-8 border-white/20">
-                          <div className="w-12 h-12 rounded-full border-4 border-slate-900" />
+                      {!capturedImage && (
+                        <button onClick={() => fileInputRef.current?.click()}
+                          className="absolute top-5 right-5 w-11 h-11 bg-white/10 backdrop-blur border border-white/20 rounded-2xl flex items-center justify-center text-white text-lg active:scale-90 transition-all">
+                          📁
                         </button>
                       )}
                     </div>
-                    {!capturedImage && (
-                      <button onClick={() => fileInputRef.current?.click()}
-                        className="absolute top-5 right-5 w-11 h-11 bg-white/10 backdrop-blur border border-white/20 rounded-2xl flex items-center justify-center text-white text-lg active:scale-90 transition-all">
-                        📁
-                      </button>
-                    )}
                   </div>
                 </div>
-              </div>
-
-              <div className="mt-6">
-                {isAnalyzing ? (
-                  <div className="flex flex-col items-center gap-2">
-                    <div className="w-full h-14 bg-slate-900 text-white rounded-2xl font-black flex items-center justify-center gap-3">
-                      <div className="w-5 h-5 border-2 border-white/30 border-t-emerald-400 rounded-full animate-spin" />
-                      ANALYZING…
+                <div className="mt-6">
+                  {isAnalyzing ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="w-full h-14 bg-slate-900 text-white rounded-2xl font-black flex items-center justify-center gap-3">
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-emerald-400 rounded-full animate-spin" />
+                        ANALYZING…
+                      </div>
+                      {analysisStatus && <p className="text-[10px] text-slate-500 font-bold animate-pulse uppercase tracking-widest">{t(analysisStatus)}</p>}
                     </div>
-                    {analysisStatus && <p className="text-[10px] text-slate-500 font-bold animate-pulse uppercase tracking-widest">{analysisStatus}</p>}
-                  </div>
-                ) : capturedImage ? (
-                  <button onClick={handleAnalyzeClick}
-                    className={`w-full h-14 text-white rounded-2xl font-black shadow-lg active:scale-98 transition-all uppercase tracking-widest ${scanMode === "barcode"
-                      ? "bg-slate-900 shadow-slate-500/20"
-                      : "bg-gradient-to-r from-[#3a3f85] to-[#6c63ff] shadow-blue-500/20"
-                      }`}>
-                    {scanMode === "barcode" ? "Analyse Barcode 📦" : "Analyse with RAG AI 🔬"}
-                  </button>
-                ) : (
-                  <div className="w-full h-14 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center text-slate-400 text-[10px] font-black uppercase tracking-widest">
-                    Point camera at product
+                  ) : capturedImage ? (
+                    <button onClick={handleAnalyzeClick}
+                      className="w-full h-14 bg-slate-900 text-white rounded-2xl font-black shadow-lg active:scale-98 transition-all uppercase tracking-widest shadow-slate-500/20">
+                      {t("Analyse Barcode 📦")}
+                    </button>
+                  ) : (
+                    <div className="w-full h-14 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center text-slate-400 text-[10px] font-black uppercase tracking-widest">
+                      {t("Point camera at barcode")}
+                    </div>
+                  )}
+                </div>
+              </>)}
+
+              {/* ── LABEL MODE: 3-step flow ── */}
+              {scanMode === "label" && (<>
+                {/* Step progress indicator */}
+                <div className="flex items-center gap-2 mb-4">
+                  {[
+                    { key: "name",        label: "Name",        num: "1" },
+                    { key: "ingredients", label: "Ingredients", num: "2" },
+                    { key: "nutrition",   label: "Nutrition",   num: "3" },
+                  ].map((s, i) => {
+                    const done = (s.key === "name" && (labelStep === "ingredients" || labelStep === "nutrition"))
+                      || (s.key === "ingredients" && labelStep === "nutrition");
+                    const active = labelStep === s.key;
+                    return (
+                      <div key={s.key} className="flex items-center gap-2 flex-1">
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 transition-all
+                          ${done ? "bg-emerald-500 text-white" : active ? "bg-[#3a3f85] text-white" : "bg-slate-200 text-slate-400"}`}>
+                          {done ? "✓" : s.num}
+                        </div>
+                        <span className={`text-[9px] font-black uppercase tracking-widest ${active ? "text-slate-900" : "text-slate-400"}`}>{s.label}</span>
+                        {i < 2 && <div className="flex-1 h-px bg-slate-200" />}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Step 1 — Product name */}
+                {labelStep === "name" && (
+                  <div className="flex-1 flex flex-col justify-center gap-4">
+                    <div className="bg-slate-50 rounded-3xl p-6 border border-slate-100">
+                      <p className="text-2xl mb-1">🏷️</p>
+                      <p className="font-black text-slate-900 text-base mb-1">{t("What product is this?")}</p>
+                      <p className="text-slate-400 text-xs mb-4">{t("Helps the RAG engine find the right context")}</p>
+                      <input
+                        type="text"
+                        placeholder="e.g. Maggi 2-Minute Noodles"
+                        value={labelProductName}
+                        onChange={e => setLabelProductName(e.target.value)}
+                        onKeyDown={e => e.key === "Enter" && labelProductName.trim() && setLabelStep("ingredients")}
+                        className="w-full h-12 bg-white border-2 border-slate-200 focus:border-[#6c63ff] rounded-2xl px-4 text-slate-900 font-black text-sm outline-none transition-all placeholder:text-slate-300"
+                        autoFocus
+                      />
+                    </div>
+                    <button
+                      onClick={() => setLabelStep("ingredients")}
+                      disabled={!labelProductName.trim()}
+                      className="w-full h-14 bg-gradient-to-r from-[#3a3f85] to-[#6c63ff] text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg active:scale-95 transition-all disabled:opacity-40 disabled:pointer-events-none">
+                      {t("Next — Scan Ingredients List →")}
+                    </button>
+                    <button onClick={() => { setLabelProductName("Unknown Product"); setLabelStep("ingredients"); }}
+                      className="text-slate-400 text-[10px] font-black uppercase tracking-widest text-center">
+                      {t("Skip — I don't know the name")}
+                    </button>
                   </div>
                 )}
-              </div>
+
+                {/* Step 2 — Ingredients scan */}
+                {labelStep === "ingredients" && (
+                  <>
+                    <p className="text-slate-400 text-[10px] font-bold mb-3 text-center uppercase tracking-widest">
+                      {t("📋 Point at the ingredients list on the back of the pack")}
+                    </p>
+                    <div className="flex-1 flex items-center justify-center">
+                      <div className="relative w-full aspect-[9/12] bg-slate-900 rounded-[36px] shadow-2xl p-1.5 ring-8 ring-slate-50">
+                        <canvas ref={canvasRef} className="hidden" />
+                        <div className="relative h-full w-full bg-slate-800 rounded-[30px] overflow-hidden flex items-center justify-center border border-white/10">
+                          {!capturedImage
+                            ? <video ref={videoRef} autoPlay playsInline muted className="object-cover w-full h-full" />
+                            : <img src={capturedImage} alt="Ingredients" className="object-cover w-full h-full" />
+                          }
+                          {!capturedImage && (
+                            <div className="absolute inset-0 pointer-events-none">
+                              <div className="scanner-line" />
+                              <div className="absolute inset-8 border-2 border-dashed border-white/20 rounded-3xl" />
+                            </div>
+                          )}
+                          <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-4 px-8 z-20">
+                            {capturedImage ? (
+                              <button onClick={() => setCapturedImage(null)}
+                                className="flex-1 h-12 bg-white/20 backdrop-blur border border-white/40 text-white text-xs font-black rounded-2xl active:scale-95 transition-all">
+                                ↺ Retake
+                              </button>
+                            ) : (
+                              <button onClick={takePhoto}
+                                className="w-20 h-20 bg-white rounded-full shadow-2xl active:scale-90 transition-all flex items-center justify-center border-8 border-white/20">
+                                <div className="w-12 h-12 rounded-full border-4 border-slate-900" />
+                              </button>
+                            )}
+                          </div>
+                          {!capturedImage && (
+                            <button onClick={() => fileInputRef.current?.click()}
+                              className="absolute top-5 right-5 w-11 h-11 bg-white/10 backdrop-blur border border-white/20 rounded-2xl flex items-center justify-center text-white text-lg active:scale-90 transition-all">
+                              📁
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-4 flex flex-col gap-2">
+                      {capturedImage ? (
+                        <button
+                          onClick={() => { setLabelIngredientsImage(capturedImage); setCapturedImage(null); setLabelStep("nutrition"); }}
+                          className="w-full h-14 bg-gradient-to-r from-[#3a3f85] to-[#6c63ff] text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg active:scale-95 transition-all">
+                          {t("Use This Photo → Scan Nutrition Table")}
+                        </button>
+                      ) : (
+                        <div className="w-full h-14 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center text-slate-400 text-[10px] font-black uppercase tracking-widest">
+                          {t("Point camera at ingredients list")}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {/* Step 3 — Nutrition table (optional) */}
+                {labelStep === "nutrition" && (
+                  <>
+                    <p className="text-slate-400 text-[10px] font-bold mb-3 text-center uppercase tracking-widest">
+                      {t("📊 Now point at the nutrition table — or skip for additive-only analysis")}
+                    </p>
+                    <div className="flex-1 flex items-center justify-center">
+                      <div className="relative w-full aspect-[9/12] bg-slate-900 rounded-[36px] shadow-2xl p-1.5 ring-8 ring-slate-50">
+                        <canvas ref={canvasRef} className="hidden" />
+                        <div className="relative h-full w-full bg-slate-800 rounded-[30px] overflow-hidden flex items-center justify-center border border-white/10">
+                          {!capturedImage
+                            ? <video ref={videoRef} autoPlay playsInline muted className="object-cover w-full h-full" />
+                            : <img src={capturedImage} alt="Nutrition table" className="object-cover w-full h-full" />
+                          }
+                          {!capturedImage && (
+                            <div className="absolute inset-0 pointer-events-none">
+                              <div className="scanner-line" />
+                              <div className="absolute inset-8 border-2 border-dashed border-white/20 rounded-3xl" />
+                            </div>
+                          )}
+                          <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-4 px-8 z-20">
+                            {capturedImage ? (
+                              <button onClick={() => setCapturedImage(null)}
+                                className="flex-1 h-12 bg-white/20 backdrop-blur border border-white/40 text-white text-xs font-black rounded-2xl active:scale-95 transition-all">
+                                ↺ Retake
+                              </button>
+                            ) : (
+                              <button onClick={takePhoto}
+                                className="w-20 h-20 bg-white rounded-full shadow-2xl active:scale-90 transition-all flex items-center justify-center border-8 border-white/20">
+                                <div className="w-12 h-12 rounded-full border-4 border-slate-900" />
+                              </button>
+                            )}
+                          </div>
+                          {!capturedImage && (
+                            <button onClick={() => fileInputRef.current?.click()}
+                              className="absolute top-5 right-5 w-11 h-11 bg-white/10 backdrop-blur border border-white/20 rounded-2xl flex items-center justify-center text-white text-lg active:scale-90 transition-all">
+                              📁
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-4 flex flex-col gap-2">
+                      {isAnalyzing ? (
+                        <div className="flex flex-col items-center gap-2">
+                          <div className="w-full h-14 bg-gradient-to-r from-[#3a3f85] to-[#6c63ff] text-white rounded-2xl font-black flex items-center justify-center gap-3">
+                            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            {t("ANALYSING WITH RAG AI…")}
+                          </div>
+                          {analysisStatus && <p className="text-[10px] text-slate-500 font-bold animate-pulse uppercase tracking-widest">{t(analysisStatus)}</p>}
+                        </div>
+                      ) : capturedImage ? (
+                        <button
+                          onClick={() => { setLabelNutritionImage(capturedImage); handleLabelAnalyze(capturedImage); }}
+                          className="w-full h-14 bg-gradient-to-r from-[#3a3f85] to-[#6c63ff] text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg active:scale-95 transition-all">
+                          {t("Analyse with RAG AI 🔬")}
+                        </button>
+                      ) : (
+                        <>
+                          <div className="w-full h-14 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center text-slate-400 text-[10px] font-black uppercase tracking-widest">
+                            {t("Point camera at nutrition table")}
+                          </div>
+                          <button
+                            onClick={() => handleLabelAnalyze(null)}
+                            disabled={isAnalyzing}
+                            className="w-full h-11 text-[#6c63ff] font-black text-xs uppercase tracking-widest border-2 border-[#6c63ff]/30 rounded-2xl active:scale-95 transition-all">
+                            {t("Skip — Analyse Ingredients Only")}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </>
+                )}
+              </>)}
             </div>
           )}
 
@@ -590,7 +922,7 @@ export default function Home() {
                 <div className={`rounded-[28px] p-7 text-white ${cfg.bg} mb-6 relative overflow-hidden shadow-2xl`}>
                   <div className="relative z-10">
                     <div className="flex justify-between items-start mb-5">
-                      <span className="bg-white/20 backdrop-blur px-3 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase border border-white/20">Health Score</span>
+                      <span className="bg-white/20 backdrop-blur px-3 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase border border-white/20">{t("Health Score")}</span>
                       <span className="text-4xl">{cfg.emoji}</span>
                     </div>
                     <h1 className="text-3xl font-black leading-tight uppercase tracking-tighter">
@@ -613,7 +945,7 @@ export default function Home() {
                   <div className="bg-gradient-to-br from-[#3a3f85]/5 to-[#6c63ff]/5 border border-[#6c63ff]/20 rounded-3xl p-5 mb-6">
                     <div className="flex items-center gap-2 mb-3">
                       <span className="text-lg">🧠</span>
-                      <p className="font-black text-[#3a3f85] text-xs uppercase tracking-widest">RAG Intelligence Analysis</p>
+                      <p className="font-black text-[#3a3f85] text-xs uppercase tracking-widest">{t("RAG Intelligence Analysis")}</p>
                     </div>
                     {analysisResult.rag_analysis.warnings?.length > 0 && (
                       <div className="space-y-2 mb-3">
@@ -640,7 +972,7 @@ export default function Home() {
                 {/* Additives */}
                 {analysisResult.additives?.length > 0 && (
                   <div className="mb-6">
-                    <p className="font-black text-slate-900 text-xs tracking-widest uppercase mb-3 px-1">Ingredient Flags</p>
+                    <p className="font-black text-slate-900 text-xs tracking-widest uppercase mb-3 px-1">{t("Ingredient Flags")}</p>
                     <div className="space-y-3">
                       {analysisResult.additives.map((a, i) => (
                         <div key={i} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex justify-between items-start">
@@ -660,7 +992,7 @@ export default function Home() {
                 {/* XAI Insights */}
                 {analysisResult.xai && analysisResult.xai.shap_impacts && Object.keys(analysisResult.xai.shap_impacts).length > 0 && (
                   <div className="mb-6">
-                    <p className="font-black text-slate-900 text-xs tracking-widest uppercase mb-3 px-1">AI Impact Analysis</p>
+                    <p className="font-black text-slate-900 text-xs tracking-widest uppercase mb-3 px-1">{t("AI Impact Analysis")}</p>
                     <div className="space-y-3">
                       {Object.entries(analysisResult.xai.shap_impacts).map(([feature, impact], i) => (
                         <div key={i} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex justify-between items-center">
@@ -682,7 +1014,7 @@ export default function Home() {
                   <div className="bg-emerald-50 rounded-[28px] p-6 border border-emerald-100 mb-6 shadow-sm">
                     <div className="flex items-center gap-2 mb-2">
                       <span className="text-xl">💡</span>
-                      <p className="text-emerald-600 font-black text-[10px] uppercase tracking-widest">Better Alternative</p>
+                      <p className="text-emerald-600 font-black text-[10px] uppercase tracking-widest">{t("Better Alternative")}</p>
                     </div>
                     <p className="text-slate-900 font-black text-lg leading-snug">{analysisResult.healthy_alternative}</p>
                   </div>
@@ -690,7 +1022,7 @@ export default function Home() {
 
                 <button onClick={() => setActiveTab("scanner")}
                   className="w-full h-14 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest">
-                  Scan Another Product 📸
+                  {t("Scan Another Product 📸")}
                 </button>
               </div>
             );
@@ -712,10 +1044,10 @@ export default function Home() {
         <nav className="fixed bottom-0 left-0 right-0 z-40 flex justify-center pointer-events-none">
           <div className="w-full max-w-md bg-white/90 backdrop-blur-2xl border-t border-slate-100 px-6 py-4 flex justify-between items-center pointer-events-auto rounded-t-[28px] shadow-[0_-10px_40px_rgba(0,0,0,0.06)]">
             {[
-              { id: "dashboard", icon: "🏠", label: "Home" },
-              { id: "trends", icon: "📊", label: "Trends" },
-              { id: "results", icon: "🔍", label: "Result" },
-              { id: "profile", icon: "⚙️", label: "Profile" },
+              { id: "dashboard", icon: "🏠", label: t("Home") },
+              { id: "trends", icon: "📊", label: t("Trends") },
+              { id: "results", icon: "🔍", label: t("Result") },
+              { id: "profile", icon: "⚙️", label: t("Profile") },
             ].map(tab => (
               <button key={tab.id} onClick={() => {
                 setActiveTab(tab.id);

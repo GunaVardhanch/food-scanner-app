@@ -54,48 +54,62 @@ class AdditivesExpert:
     def analyze_text(self, text):
         """
         Detect additives in OCR text using robust pattern matching.
+
         Returns: (detected_list, total_impact)
+
+        Also sets self.last_additive_features dict with vector fields:
+            additive_count        — total number of distinct additives found
+            has_critical_additive — 1 if any additive is banned or RED risk, else 0
+        These are consumed by routes.py to build the full scoring feature vector.
         """
         detected = []
         total_impact = 0
         text_upper = text.upper()
         detected_ids = set()
+        has_critical = 0
 
         for additive in self.additives:
             ins_id = additive["id"]
             name = additive["name"].upper()
-            
-            # Build search patterns
+
             patterns = [re.escape(name)]
-            
-            # Also match common aliases (e.g. "MSG" for "MSG (Monosodium Glutamate)")
             short_name = name.split("(")[0].strip()
             if short_name != name:
                 patterns.append(re.escape(short_name))
-            
+
             if "INS" in ins_id:
                 simple_code = ins_id.replace("INS", "").strip()
-                patterns.append(re.escape(ins_id))              # INS 102
-                patterns.append(rf"INS[\s\-]*{simple_code}")    # INS-102, INS102
-                patterns.append(rf"E[\s]*{simple_code}")        # E 102, E102
-                patterns.append(rf"\b{simple_code}\b")          # Just "102" as whole word
-            
+                patterns.append(re.escape(ins_id))
+                patterns.append(rf"INS[\s\-]*{simple_code}")
+                patterns.append(rf"E[\s]*{simple_code}")
+                patterns.append(rf"\b{simple_code}\b")
+
             combined_pattern = "|".join(patterns)
-            
+
             if re.search(combined_pattern, text_upper):
                 if ins_id not in detected_ids:
+                    risk_level  = additive["risk_level"]
+                    fssai_status = additive.get("fssai_status", "unknown")
+                    if risk_level == "RED" or fssai_status == "banned":
+                        has_critical = 1
                     entry = {
-                        "name": f"{additive['name']} ({ins_id})",
-                        "reason": additive.get("description", "Additive used in food processing."),
-                        "risk_level": additive["risk_level"],
-                        "category": additive.get("category", "Unknown"),
-                        "fssai_status": additive.get("fssai_status", "unknown"),
-                        "tags": additive.get("tags", [])
+                        "name":         f"{additive['name']} ({ins_id})",
+                        "reason":       additive.get("description", "Additive used in food processing."),
+                        "risk_level":   risk_level,
+                        "category":     additive.get("category", "Unknown"),
+                        "fssai_status": fssai_status,
+                        "tags":         additive.get("tags", []),
                     }
                     detected.append(entry)
                     total_impact += additive.get("impact", 0)
                     detected_ids.add(ins_id)
-        
+
+        # Store vector features for caller to pick up
+        self.last_additive_features = {
+            "additive_count":        len(detected),
+            "has_critical_additive": has_critical,
+        }
+
         return detected, total_impact
 
     def get_risk_summary(self, detected_additives):

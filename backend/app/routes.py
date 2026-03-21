@@ -24,6 +24,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from functools import wraps
@@ -113,8 +114,16 @@ logger = logging.getLogger(__name__)
 
 bp = Blueprint("api", __name__)
 
-# ── Lazy-init: scoring engine (used in primary /api/scan flow) ───────────────
+# ── Lazy-init singletons ──────────────────────────────────────────────────────
+# Fix 7: AdditivesExpert is now a module-level singleton so additives_db.json
+#         is parsed once at startup, not on every scan request.
+# Fix 8: All singletons use a dedicated getter so the global keyword is
+#         confined to one place per object — safer under gunicorn workers.
 _scoring_engine: Optional[HealthScoreEnsemble] = None
+_additives_expert_singleton: Optional[AdditivesExpert] = None
+_xai_service_singleton: Optional[XAIService] = None
+_ocr_pipeline: Optional[AdvancedOCRPipeline] = None
+_ner_service: Optional[NERService] = None
 
 
 def _get_scoring_engine() -> HealthScoreEnsemble:
@@ -124,22 +133,29 @@ def _get_scoring_engine() -> HealthScoreEnsemble:
     return _scoring_engine
 
 
-# ── Lazy-init legacy services (only constructed if /analyze is called) ────────
-_ocr_pipeline: Optional[AdvancedOCRPipeline] = None
-_additives_expert: Optional[AdditivesExpert] = None
-_ner_service: Optional[NERService] = None
-_xai_service: Optional[XAIService] = None
+def _get_additives_expert() -> AdditivesExpert:
+    """Fix 7: Return module-level singleton — avoids re-parsing JSON every request."""
+    global _additives_expert_singleton
+    if _additives_expert_singleton is None:
+        _additives_expert_singleton = AdditivesExpert()
+    return _additives_expert_singleton
+
+
+def _get_xai_service() -> XAIService:
+    """Fix 8: Centralised getter replaces scattered global assignments."""
+    global _xai_service_singleton
+    if _xai_service_singleton is None:
+        _xai_service_singleton = XAIService()
+    return _xai_service_singleton
 
 
 def _get_legacy_services():
-    global _ocr_pipeline, _additives_expert, _ner_service, _xai_service
+    global _ocr_pipeline, _ner_service
     if _ocr_pipeline is None:
         logger.info("Initialising legacy OCR/NLP services (first call to /analyze)…")
-        _ocr_pipeline    = AdvancedOCRPipeline()
-        _additives_expert = AdditivesExpert()
-        _ner_service     = NERService()
-        _xai_service     = XAIService()
-    return _ocr_pipeline, _get_scoring_engine(), _additives_expert, _ner_service, _xai_service
+        _ocr_pipeline = AdvancedOCRPipeline()
+        _ner_service  = NERService()
+    return _ocr_pipeline, _get_scoring_engine(), _get_additives_expert(), _ner_service, _get_xai_service()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -225,47 +241,62 @@ def scan():
     { "status": "partial", "gtin": "...", "message": "nutrition_unavailable" }
     """
     data = request.get_json(silent=True)
-    if not data or not data.get("image"):
-        return jsonify({"status": "error", "message": "image field is required"}), 400
+    if not data:
+        return jsonify({"status": "error", "message": "request body required"}), 400
 
-    # ── Step 1: Decode image ──────────────────────────────────────────────────
-    image = _decode_base64_image(data["image"])
-    if image is None:
-        return jsonify({"status": "error", "message": "invalid_image"}), 400
+    # ── Short-circuit: manual GTIN entry (no image) ───────────────────────────
+    if data.get("gtin") and not data.get("image"):
+        gtin = str(data["gtin"]).strip()
+        if not re.match(r"^\d{8,14}$", gtin):
+            return jsonify({"status": "error", "message": "invalid_gtin"}), 400
+        logger.info("POST /api/scan — manual GTIN entry: %s", gtin)
+        # jump straight to product lookup (skip image decode + barcode detection)
+    else:
+        if not data.get("image"):
+            return jsonify({"status": "error", "message": "image field is required"}), 400
 
-    logger.info("POST /api/scan — image decoded (%dx%d)", image.shape[1], image.shape[0])
+        # ── Step 1: Decode image ──────────────────────────────────────────────────
+        image = _decode_base64_image(data["image"])
+        if image is None:
+            return jsonify({"status": "error", "message": "invalid_image"}), 400
 
-    # ── Step 2: Barcode-only model ────────────────────────────────────────────
-    gtin = extract_barcode_from_image(image)
+        logger.info("POST /api/scan — image decoded (%dx%d)", image.shape[1], image.shape[0])
 
-    if not gtin:
-        logger.info("POST /api/scan — no barcode detected")
-        return jsonify({
-            "status": "error",
-            "message": "barcode_not_found",
-            "hint": "Make sure the barcode is clearly visible and well-lit."
-        }), 422
+        # ── Step 2: Barcode-only model ────────────────────────────────────────────
+        gtin = extract_barcode_from_image(image)
 
-    logger.info("POST /api/scan — barcode detected: %s", gtin)
+        if not gtin:
+            logger.info("POST /api/scan — no barcode detected")
+            return jsonify({
+                "status": "error",
+                "message": "barcode_not_found",
+                "hint": "Make sure the barcode is clearly visible and well-lit."
+            }), 422
+
+        logger.info("POST /api/scan — barcode detected: %s", gtin)
 
     # ── Step 3: Non-ML DB/API lookup ──────────────────────────────────────────
     product = get_product_by_gtin(gtin)
 
     if product is None:
         logger.info("POST /api/scan — GTIN %s not found in any database", gtin)
+        # Fix 9: return 404 so the frontend can distinguish "barcode read but
+        # product unknown" from a successful scan (200). The gtin is included
+        # so the frontend can prompt the user to scan the label instead.
         return jsonify({
             "status": "partial",
             "gtin": gtin,
             "message": "nutrition_unavailable",
-            "hint": "Product barcode was read but no nutrition data was found."
-        }), 200
+            "hint": "Product barcode was read but no nutrition data was found. Please scan the ingredients label.",
+        }), 404
 
     # ── Step 4: Run AdditivesExpert on ingredient list from DB ───────────────
     n100 = product.get("nutrition_per_100g") or {}
     ingredients_list = product.get("ingredients") or []
     ingredients_text = ", ".join(ingredients_list)
 
-    additives_expert = AdditivesExpert()
+    # Fix 7: use singleton instead of instantiating on every request
+    additives_expert = _get_additives_expert()
     detected_additives, additive_impact = additives_expert.analyze_text(ingredients_text)
     coloring_agents = [a for a in detected_additives if a.get("category") == "Colour"]
     risk_summary = additives_expert.get_risk_summary(detected_additives)
@@ -276,13 +307,20 @@ def scan():
     )
 
     # ── Step 5: Health score using nutrition + additive impact ────────────────
+    _add_feats = getattr(additives_expert, "last_additive_features", {})
     features = {
-        "sugar_g":         n100.get("sugars_g"),
-        "fat_g":           n100.get("fat_g"),
-        "carbs_g":         n100.get("carbohydrates_g"),
-        "protein_g":       n100.get("protein_g"),
-        "calories":        n100.get("energy_kcal"),
-        "additive_impact": additive_impact,
+        "sugar_g":               n100.get("sugars_g"),
+        "fat_g":                 n100.get("fat_g"),
+        "saturated_fat_g":       n100.get("saturated_fat_g"),
+        "carbs_g":               n100.get("carbohydrates_g"),
+        "protein_g":             n100.get("protein_g"),
+        "calories":              n100.get("energy_kcal"),
+        "fiber_g":               n100.get("fiber_g"),
+        "sodium_mg":             n100.get("sodium_mg"),
+        "additive_impact":       additive_impact,
+        "additive_count":        _add_feats.get("additive_count", len(detected_additives)),
+        "has_critical_additive": _add_feats.get("has_critical_additive", 0),
+        "nova_group":            product.get("nova_group"),
     }
     scoring_engine = _get_scoring_engine()
     score_value = round(scoring_engine.calculate_raw_score(features), 1)
@@ -389,13 +427,10 @@ def scan():
         healthy_alt = None
 
     # ── Step 5c: XAI Explanations ───────────────────────────────────────────
-    global _xai_service
-    if _xai_service is None:
-        _xai_service = XAIService()
-        
-    xai_explanations = _xai_service.explain_score(
+    xai_explanations = _get_xai_service().explain_score(
         None, features, ["sugar_g", "additive_impact", "calories", "protein_g"]
     )
+    nutriscore_info = scoring_engine.get_nutriscore(features)
 
     # ── Step 6: Return enriched response ─────────────────────────────────────
     response_body: Dict[str, Any] = {
@@ -406,6 +441,7 @@ def scan():
         "additives":             detected_additives,
         "coloring_agents":       coloring_agents,
         "risk_summary":          risk_summary,
+        "nutriscore":            nutriscore_info,
         "healthy_alternative":   healthy_alt,
         "preference_warnings":   preference_warnings,
         "active_preferences":    prefs,
@@ -591,6 +627,28 @@ def analytics():
     return jsonify(get_analytics(user_id=user_id))
 
 
+@bp.route("/api/translate", methods=["POST"])
+def proxy_translate():
+    """Proxy translation using deep-translator (Google Translate free)."""
+    data = request.get_json(silent=True)
+    if not data or not isinstance(data.get("texts"), list) or not data.get("target"):
+        return jsonify({"error": "Invalid request. Provide 'texts' list and 'target' language."}), 400
+    
+    target_lang = data["target"]
+    if target_lang == "en":
+        return jsonify({"translations": data["texts"]})
+        
+    try:
+        from deep_translator import GoogleTranslator
+        translator = GoogleTranslator(source='en', target=target_lang)
+        translations = translator.translate_batch(data["texts"])
+        return jsonify({"translations": translations})
+    except Exception as e:
+        logger.error("Translation error: %s", e)
+        # Fallback to original text on error
+        return jsonify({"translations": data["texts"]})
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # INDIAN LABEL SIDE-PIPELINE — POST /api/scan-label
 # Does NOT touch the barcode-first /api/scan pipeline.
@@ -615,10 +673,6 @@ def scan_label():
     if _backend_root not in _sys.path:
         _sys.path.insert(0, _backend_root)
 
-    from app.services.additives_expert import AdditivesExpert
-    from app.services.health_scoring import HealthScoreEnsemble
-    from app.services.ocr_pipeline import AdvancedOCRPipeline
-
     data = request.get_json(silent=True)
     if not data:
         return jsonify({"error": "No JSON body provided"}), 400
@@ -633,21 +687,59 @@ def scan_label():
 
     try:
         # ── Step 1: OCR the label image (if provided) ───────────────────────
+        structured_nutrition_from_ocr = {}
+        ingredients_text_from_ocr = ""
+        ocr_confidence   = 0.0
+        field_confidence = {}
         if image_b64:
             temp_id  = str(uuid.uuid4())
             img_path = f"label_{temp_id}.jpg"
             try:
                 if _save_temp_image(image_b64, img_path):
-                    ocr_pipeline = AdvancedOCRPipeline()
+                    ocr_pipeline, *_ = _get_legacy_services()
                     ocr_result   = ocr_pipeline.process_label(img_path)
                     raw_ocr_text = ocr_result.get("raw_text", "")
-                    logger.info("scan-label: OCR extracted %d chars", len(raw_ocr_text))
+                    structured_nutrition_from_ocr = ocr_result.get("structured_nutrition") or {}
+                    ingredients_text_from_ocr = ocr_result.get("ingredients_text") or ""
+                    ocr_confidence        = ocr_result.get("ocr_confidence", 0.0)
+                    field_confidence      = ocr_result.get("field_confidence", {})
+                    logger.info(
+                        "scan-label: OCR extracted %d chars | structured keys=%s",
+                        len(raw_ocr_text), list(structured_nutrition_from_ocr.keys())
+                    )
             except MemoryError:
                 logger.warning("scan-label: OCR MemoryError, skipping OCR")
                 raw_ocr_text = ""
             except Exception as exc:
                 logger.warning("scan-label: OCR failed: %s", exc)
                 raw_ocr_text = ""
+
+        # ── Step 1b: Second OCR pass for nutrition table image (if provided) ─
+        nutrition_image_b64 = data.get("nutrition_image")
+        if nutrition_image_b64 and nutrition_image_b64 != image_b64:
+            nutr_temp_id  = str(uuid.uuid4())
+            nutr_img_path = f"label_nutr_{nutr_temp_id}.jpg"
+            try:
+                if _save_temp_image(nutrition_image_b64, nutr_img_path):
+                    ocr_pipeline, *_ = _get_legacy_services()
+                    nutr_ocr_result = ocr_pipeline.process_label(nutr_img_path)
+                    nutr_structured = nutr_ocr_result.get("structured_nutrition") or {}
+                    nutr_raw        = nutr_ocr_result.get("raw_text", "")
+                    # Merge: nutrition image values take priority for numeric fields
+                    for k, v in nutr_structured.items():
+                        if v is not None:
+                            structured_nutrition_from_ocr[k] = v
+                    if nutr_raw:
+                        raw_ocr_text = (raw_ocr_text + " " + nutr_raw).strip()
+                    logger.info(
+                        "scan-label: nutrition image OCR merged — keys=%s",
+                        list(nutr_structured.keys())
+                    )
+            except Exception as exc:
+                logger.warning("scan-label: nutrition image OCR failed (non-fatal): %s", exc)
+            finally:
+                if os.path.exists(nutr_img_path):
+                    os.remove(nutr_img_path)
 
         # ── Step 2: Indian product lookup (FSSAI, OFF India, OFF World, OCR) ─
         try:
@@ -665,24 +757,51 @@ def scan_label():
         # ── Step 3: Enrich with additives & health score ──────────────────
         nutr = product.get("nutrition") or {}
         ingredients_text = ", ".join(product.get("ingredients", []))
-        if raw_ocr_text and not ingredients_text:
-            ingredients_text = raw_ocr_text
+        # Prefer OCR-extracted ingredients text when the lookup returned nothing
+        if not ingredients_text:
+            ingredients_text = ingredients_text_from_ocr or raw_ocr_text
 
-        additives_expert = AdditivesExpert()
+        # Fix: use singleton instead of instantiating on every request
+        additives_expert = _get_additives_expert()
         detected_additives, additive_impact = additives_expert.analyze_text(ingredients_text)
         coloring_agents = [a for a in detected_additives if a.get("category") == "Colour"]
 
+        # Prefer structured_nutrition from OCR pipeline over regex-extracted nutr dict
+        # structured_nutrition_from_ocr uses canonical keys (energy_kcal, fat_g, etc.)
+        # nutr uses short keys (calories, fat, sugar, etc.) — merge both
+        def _pick(ocr_key, nutr_key, nutr_key2=None):
+            v = structured_nutrition_from_ocr.get(ocr_key)
+            if v is not None:
+                return float(v)
+            v = nutr.get(nutr_key)
+            if v is not None:
+                return float(v)
+            if nutr_key2:
+                v = nutr.get(nutr_key2)
+                if v is not None:
+                    return float(v)
+            return None
+
+        _add_feats_label = getattr(additives_expert, "last_additive_features", {})
         features = {
-            "sugar_g":         nutr.get("sugar") or 0,
-            "fat_g":           nutr.get("fat") or 0,
-            "carbs_g":         nutr.get("carbs") or 0,
-            "protein_g":       nutr.get("protein") or 0,
-            "calories":        nutr.get("calories") or 0,
-            "additive_impact": additive_impact,
+            "calories":              _pick("energy_kcal",    "calories"),
+            "sugar_g":               _pick("sugar_g",        "sugar"),
+            "fat_g":                 _pick("fat_g",          "fat"),
+            "saturated_fat_g":       _pick("saturated_fat_g","saturated_fat"),
+            "carbs_g":               _pick("carbohydrates_g","carbs"),
+            "protein_g":             _pick("protein_g",      "protein"),
+            "fiber_g":               _pick("fiber_g",        "fiber"),
+            "sodium_mg":             _pick("sodium_mg",      "sodium"),
+            "additive_impact":       additive_impact,
+            "additive_count":        _add_feats_label.get("additive_count", len(detected_additives)),
+            "has_critical_additive": _add_feats_label.get("has_critical_additive", 0),
+            "nova_group":            product.get("nova_group"),
         }
         scoring_engine = _get_scoring_engine()
         health_score   = scoring_engine.calculate_raw_score(features)
-        risk_tier      = additives_expert.get_risk_summary(detected_additives).get("risk_tier", "SAFE")
+        nutriscore_info = scoring_engine.get_nutriscore(features)
+        risk_summary   = additives_expert.get_risk_summary(detected_additives)
+        risk_tier      = risk_summary.get("risk_tier", "SAFE")
 
         if risk_tier in ("CRITICAL", "HIGH_RISK"):
             health_color = "RED"
@@ -698,20 +817,86 @@ def scan_label():
             except Exception:
                 return "N/A"
 
+        # Use merged features dict so OCR-extracted values show up even when
+        # the product lookup returned nothing
         flat_nutrition = {
-            "calories":  _fmt(nutr.get("calories"), " kcal"),
-            "protein":   _fmt(nutr.get("protein")),
-            "total_fat": _fmt(nutr.get("fat")),
-            "carbs":     _fmt(nutr.get("carbs")),
-            "sugar":     _fmt(nutr.get("sugar")),
-            "fiber":     _fmt(nutr.get("fiber")),
-            "sodium":    _fmt(nutr.get("sodium"), " mg"),
+            "calories":  _fmt(features.get("calories"),  " kcal"),
+            "protein":   _fmt(features.get("protein_g")),
+            "total_fat": _fmt(features.get("fat_g")),
+            "carbs":     _fmt(features.get("carbs_g")),
+            "sugar":     _fmt(features.get("sugar_g")),
+            "fiber":     _fmt(features.get("fiber_g")),
+            "sodium":    _fmt(features.get("sodium_mg"), " mg"),
         }
 
         healthy_alt = (
             "Try fresh homemade alternatives to reduce additives and sugar."
             if health_score < 5.0 else None
         )
+
+        # ── Step 3b: Apply user dietary preferences (same logic as barcode path) ─
+        user_id = _get_current_user_id()
+        prefs = {"vegan": False, "no_sugar": False, "low_sodium": False, "gluten_free": False}
+        preference_warnings = []
+        try:
+            from app.services.history_service import _get_conn as _hconn
+            with _hconn() as _pc:
+                _prow = _pc.execute(
+                    "SELECT vegan, no_sugar, low_sodium, gluten_free FROM preferences WHERE user_id=?",
+                    (user_id or 0,)
+                ).fetchone()
+                if _prow:
+                    prefs = {
+                        "vegan":       bool(_prow[0]),
+                        "no_sugar":    bool(_prow[1]),
+                        "low_sodium":  bool(_prow[2]),
+                        "gluten_free": bool(_prow[3]),
+                    }
+        except Exception as _pe:
+            logger.warning("scan-label: preferences load failed (non-fatal): %s", _pe)
+
+        ing_lower = ingredients_text.lower()
+        if prefs["vegan"]:
+            animal_kw = ["milk", "cheese", "paneer", "butter", "ghee", "cream",
+                         "egg", "meat", "chicken", "fish", "gelatin", "honey",
+                         "whey", "lactose", "casein", "lard"]
+            violations = [kw for kw in animal_kw if kw in ing_lower]
+            if violations:
+                preference_warnings.append(f"⚠️ Not vegan: contains {', '.join(violations[:3])}")
+                health_color = "RED"
+
+        if prefs["no_sugar"]:
+            sugar_val = features.get("sugar_g") or 0
+            sugar_kw = ["sugar", "sucrose", "glucose syrup", "corn syrup", "dextrose",
+                        "fructose", "maltose", "molasses", "cane juice"]
+            if sugar_val > 5 or any(kw in ing_lower for kw in sugar_kw):
+                preference_warnings.append(f"⚠️ High sugar: {sugar_val}g per 100g")
+                if health_color == "GREEN":
+                    health_color = "YELLOW"
+
+        if prefs["low_sodium"]:
+            sodium_val = features.get("sodium_mg") or 0
+            if sodium_val > 400:
+                preference_warnings.append(f"⚠️ High sodium: {sodium_val}mg per 100g")
+                if health_color == "GREEN":
+                    health_color = "YELLOW"
+                if sodium_val > 800:
+                    health_color = "RED"
+
+        if prefs["gluten_free"]:
+            gluten_kw = ["wheat", "barley", "rye", "oat", "gluten",
+                         "wheat flour", "maida", "semolina", "atta"]
+            violations = [kw for kw in gluten_kw if kw in ing_lower]
+            if violations:
+                preference_warnings.append(f"⚠️ Contains gluten: {', '.join(violations[:3])}")
+                health_color = "RED"
+
+        if preference_warnings:
+            healthy_alt = " | ".join(preference_warnings)
+
+        # data_quality flag: "low" when OCR confidence < 0.6 or < 3 fields extracted
+        extracted_field_count = len([v for v in structured_nutrition_from_ocr.values() if v is not None])
+        data_quality = "low" if (ocr_confidence < 0.6 or extracted_field_count < 3) else "ok"
 
         response_body: Dict[str, Any] = {
             **product,
@@ -720,9 +905,17 @@ def scan_label():
             "nutrition":           flat_nutrition,
             "additives":           detected_additives,
             "coloring_agents":     coloring_agents,
+            "risk_summary":        risk_summary,
+            "nutriscore":          nutriscore_info,
+            "xai":                 {"shap_impacts": _get_xai_service().explain_score(None, features, [])},
             "warnings":            product.get("warnings", []),
             "healthy_alternative": healthy_alt,
+            "preference_warnings": preference_warnings,
+            "active_preferences":  prefs,
             "scan_mode":           "label",
+            "ocr_confidence":      ocr_confidence,
+            "field_confidence":    field_confidence,
+            "data_quality":        data_quality,
         }
 
         # ── RAG enrichment (label scan path only, never barcode path) ──────
@@ -741,13 +934,13 @@ def scan_label():
 
         # ── Step 5: Auto-save to history ──────────────────────────────────
         try:
-            user_id = _get_current_user_id()
+            # user_id already resolved in preferences block above
             save_scan(
                 product_name=product.get("product_name") or product_name,
                 brand=product.get("brand"),
                 health_score=health_color,
                 score_value=round(health_score, 1),
-                nutrition=nutr,
+                nutrition=features,
                 ingredients=product.get("ingredients", []),
                 flagged_additives=detected_additives,
                 healthy_alternative=healthy_alt,
@@ -795,7 +988,7 @@ def _ocr_only_extract(product_name: str, raw_text: str) -> dict:
     carbs    = _find([r"total\s+carbo[^\d]*(\d+(?:\.\d+)?)\s*g", r"carbohydrate[^\d]*(\d+(?:\.\d+)?)\s*g", r"carbs?[^\d]*(\d+(?:\.\d+)?)\s*g"])
     sugar    = _find([r"sugar[^\d]*(\d+(?:\.\d+)?)\s*g"])
     sodium   = _find([r"sodium[^\d]*(\d+(?:\.\d+)?)\s*m?g", r"salt[^\d]*(\d+(?:\.\d+)?)\s*g"])
-    fiber    = _find([r"(?:dietary\s+)?fi(?:e)?r(?:e)?[^\d]*(\d+(?:\.\d+)?)\s*g"])
+    fiber    = _find([r"(?:dietary\s+)?fi(?:b|e)r(?:e)?[^\d]*(\d+(?:\.\d+)?)\s*g"])
 
     ing_match = re.search(r"ingredients?\s*:?\s*([^.]{10,400})", raw_text, re.IGNORECASE | re.DOTALL)
     ingredients = []

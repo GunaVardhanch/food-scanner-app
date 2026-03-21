@@ -1,193 +1,221 @@
-import torch
-from transformers import BertTokenizerFast, BertForTokenClassification
-import re
-import os
+"""
+ner_service.py
+──────────────
+Nutrition entity extraction from OCR text.
 
-from app.config import NUTRITION_NER_MODEL_DIR
+Design decision: BERT fine-tune removed.
+The BERT model path was never trained and fell back to regex on every call.
+This version owns the regex approach explicitly — it's faster, has no
+dependency on a missing model file, and is easier to extend.
+
+If a fine-tuned model becomes available in future, re-introduce the BERT
+path by checking NUTRITION_NER_MODEL_DIR and loading conditionally.
+
+Covers:
+  - English nutrition label patterns
+  - Hindi/Devanagari label patterns
+  - INS / E-number additive codes
+  - kJ → kcal conversion
+  - Salt → sodium conversion
+"""
+
+from __future__ import annotations
+
+import re
+from typing import Any, Dict, List, Optional
+
 
 class NERService:
-    def __init__(self, model_dir=None):
-        if model_dir is None:
-            model_dir = NUTRITION_NER_MODEL_DIR
-        self.tag2id = {"O": 0, "B-CAL": 1, "I-CAL": 2, "B-SUGAR": 3, "I-SUGAR": 4, "B-ADD": 5, "I-ADD": 6}
-        self.id2tag = {v: k for k, v in self.tag2id.items()}
-        self.model_dir = model_dir
+    """
+    Regex-based nutrition entity extractor.
 
-        try:
-            if os.path.exists(model_dir) and any(
-                f.endswith(".bin") or f.endswith(".safetensors") for f in os.listdir(model_dir)
-            ):
-                self.tokenizer = BertTokenizerFast.from_pretrained('bert-base-multilingual-cased')
-                self.model = BertForTokenClassification.from_pretrained(model_dir)
-                self.is_ready = True
-                print(f"NERService: Loaded model from {model_dir}")
-            else:
-                self.is_ready = False
-                print("NERService: Model not found. Running in heuristic fallback mode.")
-        except Exception as e:
-            print(f"NERService: Error loading model: {e}")
-            self.is_ready = False
+    extract(text, structured_nutrition=None) → dict with keys:
+        calories, sugar_g, fat_g, saturated_fat_g, trans_fat_g,
+        carbs_g, protein_g, fiber_g, sodium_mg, additives_found
+    """
 
-    def extract(self, text):
-        if not self.is_ready:
-            return self._heuristic_extract(text)
+    def extract(
+        self,
+        text: str,
+        structured_nutrition: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Extract nutrition entities from text.
 
-        # BERT Inference
-        inputs = self.tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=128)
-        with torch.no_grad():
-            outputs = self.model(**inputs).logits
+        If structured_nutrition is provided (from AdvancedOCRPipeline), use it
+        directly for numeric fields — avoids double-parsing already-parsed data.
+        """
+        if structured_nutrition:
+            return self._from_structured(structured_nutrition, text)
+        return self._heuristic_extract(text)
 
-        predictions = torch.argmax(outputs, dim=2)
-        tokens = self.tokenizer.convert_ids_to_tokens(inputs["input_ids"][0])
+    # ── Structured passthrough ────────────────────────────────────────────────
 
-        bert_result = self._parse_bert_entities(tokens, predictions[0])
+    def _from_structured(self, s: Dict[str, Any], raw_text: str = "") -> Dict[str, Any]:
+        """
+        Convert AdvancedOCRPipeline structured_nutrition dict to the NER output
+        schema expected by health_scoring and routes.
+        Also runs additive extraction on the raw text.
+        """
+        def _get(*keys):
+            for k in keys:
+                v = s.get(k)
+                if v is not None:
+                    return float(v)
+            return None
 
-        # Fill any missing fields with heuristic (BERT may not have all tags)
-        heuristic_result = self._heuristic_extract(text)
-        for key, value in heuristic_result.items():
-            if bert_result.get(key) is None:
-                bert_result[key] = value
-
-        return bert_result
-
-    def _parse_bert_entities(self, tokens, predictions):
-        """Parse BERT token-level predictions into structured nutrition entities."""
-        entities = {
-            "sugar_g": None, "calories": None, "protein_g": None,
-            "fat_g": None, "carbs_g": None, "additives_found": []
+        result = {
+            "calories":        _get("energy_kcal"),
+            "sugar_g":         _get("sugar_g"),
+            "fat_g":           _get("fat_g"),
+            "saturated_fat_g": _get("saturated_fat_g"),
+            "trans_fat_g":     _get("trans_fat_g"),
+            "carbs_g":         _get("carbohydrates_g"),
+            "protein_g":       _get("protein_g"),
+            "fiber_g":         _get("fiber_g"),
+            "sodium_mg":       _get("sodium_mg"),
+            "additives_found": [],
         }
-        current_tag = None
-        current_span = []
 
-        for token, pred in zip(tokens, predictions):
-            tag = self.id2tag.get(pred.item(), "O")
-            if token in ['[CLS]', '[SEP]', '[PAD]']:
-                continue
-            if tag.startswith("B-"):
-                if current_tag and current_span:
-                    self._assign_entity(entities, current_tag, current_span)
-                current_tag = tag[2:]
-                current_span = [token]
-            elif tag.startswith("I-") and current_tag == tag[2:]:
-                current_span.append(token)
-            else:
-                if current_tag and current_span:
-                    self._assign_entity(entities, current_tag, current_span)
-                current_tag = None
-                current_span = []
+        # Still run additive extraction on raw text even when structured data is available
+        if raw_text:
+            result["additives_found"] = self._extract_additives(raw_text)
 
-        if current_tag and current_span:
-            self._assign_entity(entities, current_tag, current_span)
+        return result
 
-        return entities
+    # ── Heuristic extraction ──────────────────────────────────────────────────
 
-    def _assign_entity(self, entities, tag, tokens):
-        """Convert a BERT entity span to a numeric value."""
-        span_text = "".join(t.replace("##", "") for t in tokens)
-        nums = re.findall(r'\d+\.?\d*', span_text)
-        if not nums:
-            return
-        value = float(nums[0])
-        if tag == "CAL":
-            entities["calories"] = int(value)
-        elif tag == "SUGAR":
-            entities["sugar_g"] = value
-
-    def _heuristic_extract(self, text):
+    def _heuristic_extract(self, text: str) -> Dict[str, Any]:
         """
-        Robust multi-pattern regex extraction.
-        Returns None for fields that could not be found — avoids biasing
-        health scores with wrong assumed defaults.
+        Multi-pattern regex extraction.
+        Returns None for fields not found — avoids biasing scores with defaults.
+        Covers English + Hindi/regional label patterns.
         """
-        text_lower = text.lower()
+        t = text.lower()
 
-        # ── Calories ────────────────────────────────────────────────────────────
-        calories = None
-        cal_patterns = [
-            r'energy[:\s]+(\d+)\s*(?:kcal|cal\b)',       # Energy: 350 kcal
-            r'(\d+)\s*kcal',                              # 350 kcal
-            r'calories?[:\s]+(\d+)',                      # Calories: 350
-            r'(\d+)\s*cal(?:ories?)?\b',                  # 350 Cal
-            r'(\d+)\s*kj',                                # 350 kJ (kilojoules)
-        ]
-        for pat in cal_patterns:
-            m = re.search(pat, text_lower)
-            if m:
-                raw = int(m.group(1))
-                # Convert kJ → kcal if the pattern matched kilojoules and value looks like kJ
-                if 'kj' in pat and raw > 400:
-                    raw = round(raw / 4.184)
-                calories = raw
-                break
+        def _first(patterns: List[str]) -> Optional[float]:
+            for pat in patterns:
+                m = re.search(pat, t)
+                if m:
+                    try:
+                        return float(m.group(1))
+                    except Exception:
+                        pass
+            return None
 
-        # ── Sugar ───────────────────────────────────────────────────────────────
-        sugar = None
-        sugar_patterns = [
-            r'of which sugars?[:\s]+(\d+\.?\d*)',         # of which sugars: 12.5
-            r'(?:total\s*)?sugars?[:\s]+(\d+\.?\d*)\s*g', # Total Sugars: 12.5g
-            r'sugars?[:\s]+(\d+\.?\d*)',                   # Sugars: 12.5
-        ]
-        for pat in sugar_patterns:
-            m = re.search(pat, text_lower)
-            if m:
-                sugar = float(m.group(1))
-                break
+        # ── Calories / Energy ────────────────────────────────────────────────
+        calories = _first([
+            r"energy[:\s]+(\d+\.?\d*)\s*kcal",
+            r"(\d+\.?\d*)\s*kcal",
+            r"calories?[:\s]+(\d+\.?\d*)",
+            r"(\d+\.?\d*)\s*cal(?:ories?)?\b",
+            r"ऊर्जा[:\s]+(\d+\.?\d*)",
+        ])
+        # kJ fallback — convert to kcal
+        if calories is None:
+            kj = _first([r"energy[:\s]+(\d+\.?\d*)\s*kj", r"(\d+\.?\d*)\s*kj"])
+            if kj is not None and kj > 400:
+                calories = round(kj / 4.184)
 
-        # ── Fat ─────────────────────────────────────────────────────────────────
-        fat = None
-        fat_patterns = [
-            r'(?:total\s*)?fat[:\s]+(\d+\.?\d*)\s*g',    # Total Fat: 10g
-            r'fat[:\s]+(\d+\.?\d*)',                       # Fat: 10
-            r'lipids?[:\s]+(\d+\.?\d*)',                   # Lipids: 10 (European labels)
-        ]
-        for pat in fat_patterns:
-            m = re.search(pat, text_lower)
-            if m:
-                fat = float(m.group(1))
-                break
+        # ── Sugar ────────────────────────────────────────────────────────────
+        sugar_g = _first([
+            r"of which sugars?[:\s]+(\d+\.?\d*)",
+            r"(?:total\s*)?sugars?[:\s]+(\d+\.?\d*)\s*g",
+            r"sugars?[:\s]+(\d+\.?\d*)",
+            r"शर्करा[:\s]+(\d+\.?\d*)",
+            r"चीनी[:\s]+(\d+\.?\d*)",
+        ])
 
-        # ── Carbohydrates ────────────────────────────────────────────────────────
-        carbs = None
-        carbs_patterns = [
-            r'(?:total\s*)?carbohydrates?[:\s]+(\d+\.?\d*)\s*g', # Total Carbohydrates: 30g
-            r'(?:total\s*)?carbohydrates?[:\s]+(\d+\.?\d*)',      # Total Carbohydrates: 30
-            r'carbs?[:\s]+(\d+\.?\d*)\s*g',                       # Carbs: 30g
-            r'carbs?[:\s]+(\d+\.?\d*)',                            # Carbs: 30
-        ]
-        for pat in carbs_patterns:
-            m = re.search(pat, text_lower)
-            if m:
-                carbs = float(m.group(1))
-                break
+        # ── Fat ──────────────────────────────────────────────────────────────
+        fat_g = _first([
+            r"(?:total\s*)?fat[:\s]+(\d+\.?\d*)\s*g",
+            r"fat[:\s]+(\d+\.?\d*)",
+            r"lipids?[:\s]+(\d+\.?\d*)",
+            r"वसा[:\s]+(\d+\.?\d*)",
+        ])
 
-        # ── Protein ──────────────────────────────────────────────────────────────
-        protein = None
-        protein_patterns = [
-            r'proteins?[:\s]+(\d+\.?\d*)\s*g',           # Protein: 5g
-            r'proteins?[:\s]+(\d+\.?\d*)',                # Protein: 5
-        ]
-        for pat in protein_patterns:
-            m = re.search(pat, text_lower)
-            if m:
-                protein = float(m.group(1))
-                break
+        # ── Saturated fat ────────────────────────────────────────────────────
+        saturated_fat_g = _first([
+            r"saturated\s*fat[:\s]+(\d+\.?\d*)\s*g",
+            r"saturated[:\s]+(\d+\.?\d*)",
+            r"sat\.?\s*fat[:\s]+(\d+\.?\d*)",
+        ])
+
+        # ── Trans fat ────────────────────────────────────────────────────────
+        trans_fat_g = _first([
+            r"trans\s*fat[:\s]+(\d+\.?\d*)\s*g",
+            r"trans[:\s]+(\d+\.?\d*)",
+        ])
+
+        # ── Carbohydrates ────────────────────────────────────────────────────
+        carbs_g = _first([
+            r"(?:total\s*)?carbohydrates?[:\s]+(\d+\.?\d*)\s*g",
+            r"(?:total\s*)?carbohydrates?[:\s]+(\d+\.?\d*)",
+            r"carbs?[:\s]+(\d+\.?\d*)\s*g",
+            r"carbs?[:\s]+(\d+\.?\d*)",
+        ])
+
+        # ── Protein ──────────────────────────────────────────────────────────
+        protein_g = _first([
+            r"proteins?[:\s]+(\d+\.?\d*)\s*g",
+            r"proteins?[:\s]+(\d+\.?\d*)",
+            r"प्रोटीन[:\s]+(\d+\.?\d*)",
+        ])
+
+        # ── Dietary fiber ────────────────────────────────────────────────────
+        fiber_g = _first([
+            r"(?:dietary\s*)?fi(?:b|e)r(?:e)?[:\s]+(\d+\.?\d*)\s*g",
+            r"(?:dietary\s*)?fi(?:b|e)r(?:e)?[:\s]+(\d+\.?\d*)",
+        ])
+
+        # ── Sodium ───────────────────────────────────────────────────────────
+        sodium_mg = _first([
+            r"sodium[:\s]+(\d+\.?\d*)\s*mg",
+            r"sodium[:\s]+(\d+\.?\d*)",
+            r"सोडियम[:\s]+(\d+\.?\d*)",
+        ])
+        # Salt → sodium conversion (salt_g * 400 ≈ sodium_mg)
+        if sodium_mg is None:
+            salt_g = _first([r"salt[:\s]+(\d+\.?\d*)\s*g", r"salt[:\s]+(\d+\.?\d*)"])
+            if salt_g is not None:
+                sodium_mg = round(salt_g * 400)
 
         return {
-            "sugar_g": sugar,        # None if OCR text doesn't contain it
-            "calories": calories,    # None if OCR text doesn't contain it
-            "protein_g": protein,    # None if OCR text doesn't contain it
-            "fat_g": fat,            # None if OCR text doesn't contain it
-            "carbs_g": carbs,        # None if OCR text doesn't contain it
-            "additives_found": []    # Handled by AdditivesExpert
+            "calories":        int(calories) if calories is not None else None,
+            "sugar_g":         sugar_g,
+            "fat_g":           fat_g,
+            "saturated_fat_g": saturated_fat_g,
+            "trans_fat_g":     trans_fat_g,
+            "carbs_g":         carbs_g,
+            "protein_g":       protein_g,
+            "fiber_g":         fiber_g,
+            "sodium_mg":       sodium_mg,
+            "additives_found": self._extract_additives(text),
         }
+
+    # ── Additive code extraction ──────────────────────────────────────────────
+
+    def _extract_additives(self, text: str) -> List[str]:
+        """
+        Extract INS / E-number codes from text.
+        Matches: INS 211, INS211, INS-211, E211, E102
+        """
+        found = []
+        for m in re.finditer(r"\b(?:ins\.?\s*|e)(\d{3}[a-z]?)\b", text, re.IGNORECASE):
+            code = m.group(0).upper().replace(" ", "").replace(".", "").replace("-", "")
+            if code not in found:
+                found.append(code)
+        return found
+
 
 if __name__ == "__main__":
     ner = NERService()
     tests = [
-        "Nutrition Facts: Energy 525 kcal, Total Sugars 45.5g, Protein 6g, Total Fat 18g, Carbohydrates 62g.",
-        "Per 100g: Calories 200, Fat 10.2g, Carbs 25g, of which sugars 5.1g, Protein 3.5g.",
+        "Nutrition Facts: Energy 525 kcal, Total Sugars 45.5g, Protein 6g, Total Fat 18g, Carbohydrates 62g, Sodium 380mg, Dietary Fiber 2g.",
+        "Per 100g: Calories 200, Fat 10.2g, Saturated Fat 3.1g, Trans Fat 0g, Carbs 25g, of which sugars 5.1g, Protein 3.5g, Salt 0.8g.",
         "Energy 1200kJ, Lipids 15g, Carbohydrates 30g, of which sugars 8g, Proteins 4g.",
-        "No nutrition info here.",
+        "ऊर्जा 350 kcal, प्रोटीन 5g, वसा 12g, शर्करा 20g, सोडियम 200mg",
+        "Contains INS 211, E102, INS-319 as preservatives.",
     ]
     for t in tests:
-        print(f"\nText: {t[:60]}...\nResult: {ner.extract(t)}")
+        print(f"\nText: {t[:70]}\nResult: {ner.extract(t)}")

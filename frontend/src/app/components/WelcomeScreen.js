@@ -1,11 +1,13 @@
 "use client";
 import { useState } from "react";
+import { useTranslate } from "../../lib/translateContext";
 
 const API_BASE_URL = typeof process.env.NEXT_PUBLIC_API_URL === "string"
     ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "")
     : "http://127.0.0.1:7860";
 
 export default function WelcomeScreen({ onAuth, onGuest }) {
+    const { t } = useTranslate();
     const [mode, setMode] = useState("welcome"); // welcome | login | register
     const [form, setForm] = useState({ name: "", email: "", password: "" });
     const [loading, setLoading] = useState(false);
@@ -76,7 +78,7 @@ export default function WelcomeScreen({ onAuth, onGuest }) {
                         Nutri<span className="text-emerald-400">Scanner</span>
                     </h1>
                     <p className="text-white/50 text-base mt-3 text-center font-medium">
-                        Know what's really in your food
+                        {t("Know what's really in your food")}
                     </p>
 
                     <div className="w-full mt-14 space-y-3">
@@ -84,26 +86,26 @@ export default function WelcomeScreen({ onAuth, onGuest }) {
                             onClick={() => setMode("login")}
                             className="w-full h-14 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-emerald-500/30 active:scale-95 transition-all flex items-center justify-center gap-2"
                         >
-                            🔑 Sign In
+                            🔑 {t("Sign In")}
                         </button>
                         <button
                             onClick={() => setMode("register")}
                             className="w-full h-14 bg-white/10 backdrop-blur border border-white/20 text-white rounded-2xl font-black text-sm uppercase tracking-widest active:scale-95 transition-all flex items-center justify-center gap-2"
                         >
-                            ✨ Create Account
+                            ✨ {t("Create Account")}
                         </button>
                         <button
                             onClick={onGuest}
                             className="w-full h-12 text-white/40 text-xs font-bold uppercase tracking-widest hover:text-white/70 transition-colors"
                         >
-                            Continue as Guest →
+                            {t("Continue as Guest")} →
                         </button>
                     </div>
                 </div>
 
                 <div className="pb-10 px-8 text-center relative z-10">
                     <p className="text-white/20 text-[10px] font-medium">
-                        Guest mode: scan only · No history saved
+                        {t("Guest mode: scan only · No history saved")}
                     </p>
                 </div>
             </div>
@@ -125,10 +127,10 @@ export default function WelcomeScreen({ onAuth, onGuest }) {
                 </button>
 
                 <h2 className="text-3xl font-black text-white mb-1">
-                    {mode === "login" ? "Welcome back" : "Create account"}
+                    {mode === "login" ? t("Welcome back") : t("Create account")}
                 </h2>
                 <p className="text-white/40 text-sm mb-8">
-                    {mode === "login" ? "Sign in to access your scan history & analytics" : "Join to save your scans and track your health"}
+                    {mode === "login" ? t("Sign in to access your scan history & analytics") : t("Join to save your scans and track your health")}
                 </p>
 
                 {/* Tab row */}
@@ -136,21 +138,21 @@ export default function WelcomeScreen({ onAuth, onGuest }) {
                     {["login", "register"].map(m => (
                         <button key={m} onClick={() => { setMode(m); setError(""); }}
                             className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${mode === m ? "bg-white/15 text-white" : "text-white/30"}`}>
-                            {m === "login" ? "Sign In" : "Register"}
+                            {m === "login" ? t("Sign In") : t("Register")}
                         </button>
                     ))}
                 </div>
 
                 <div className="space-y-3">
                     {mode === "register" && (
-                        <input type="text" placeholder="Your name" value={form.name}
+                        <input type="text" placeholder={t("Your name")} value={form.name}
                             onChange={e => update("name", e.target.value)}
                             className="w-full px-4 py-4 rounded-2xl bg-white/10 border border-white/15 text-white placeholder:text-white/30 text-sm font-medium focus:outline-none focus:border-emerald-400/60 focus:bg-white/15 transition-all" />
                     )}
-                    <input type="email" placeholder="Email address" value={form.email}
+                    <input type="email" placeholder={t("Email address")} value={form.email}
                         onChange={e => update("email", e.target.value)}
                         className="w-full px-4 py-4 rounded-2xl bg-white/10 border border-white/15 text-white placeholder:text-white/30 text-sm font-medium focus:outline-none focus:border-emerald-400/60 focus:bg-white/15 transition-all" />
-                    <input type="password" placeholder="Password (min 6 chars)" value={form.password}
+                    <input type="password" placeholder={t("Password (min 6 chars)")} value={form.password}
                         onChange={e => update("password", e.target.value)}
                         onKeyDown={e => e.key === "Enter" && submit()}
                         className="w-full px-4 py-4 rounded-2xl bg-white/10 border border-white/15 text-white placeholder:text-white/30 text-sm font-medium focus:outline-none focus:border-emerald-400/60 focus:bg-white/15 transition-all" />
@@ -165,12 +167,12 @@ export default function WelcomeScreen({ onAuth, onGuest }) {
                         className="w-full h-14 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-emerald-500/30 active:scale-95 transition-all disabled:opacity-60 flex items-center justify-center gap-2 mt-2">
                         {loading
                             ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                            : mode === "login" ? "Sign In" : "Create Account"}
+                            : mode === "login" ? t("Sign In") : t("Create Account")}
                     </button>
 
                     <button onClick={onGuest}
                         className="w-full py-3 text-white/30 text-xs font-bold uppercase tracking-widest hover:text-white/60 transition-colors">
-                        Continue as Guest (scan only)
+                        {t("Continue as Guest (scan only)")}
                     </button>
                 </div>
             </div>

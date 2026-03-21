@@ -70,6 +70,14 @@ def init_db() -> None:
                 gluten_free INTEGER DEFAULT 0
             )
         """)
+        # Ensure nutrition_cache table exists so cold-start doesn't warn on every lookup
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS nutrition_cache (
+                gtin       TEXT PRIMARY KEY,
+                data       TEXT NOT NULL,
+                fetched_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
         conn.commit()
 
     # ── Migrate old scan_history.json into DB (one-time) ────────────────────
