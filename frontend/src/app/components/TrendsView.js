@@ -1,15 +1,31 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useTranslate } from "../../lib/translateContext";
+
+const emojiMap = { GREEN: "🟢", YELLOW: "🟡", RED: "🔴" };
 
 const API = typeof process.env.NEXT_PUBLIC_API_URL === "string"
     ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "")
     : "http://127.0.0.1:7860";
 
 // ── SVG Score Graph ──────────────────────────────────────────────────────────
-function ScoreGraph({ trend }) {
+function ScoreGraph({ trend, onSelectPoint }) {
     const svgRef = useRef(null);
     const [hovered, setHovered] = useState(null);
+    // touch: track tap count for double-tap detection
+    const tapRef = useRef({ last: 0, timer: null });
+
+    const handleTap = useCallback((i) => {
+        const now = Date.now();
+        if (now - tapRef.current.last < 350) {
+            // double-tap
+            clearTimeout(tapRef.current.timer);
+            onSelectPoint && onSelectPoint(i);
+        } else {
+            tapRef.current.timer = setTimeout(() => setHovered(i), 200);
+        }
+        tapRef.current.last = now;
+    }, [onSelectPoint]);
 
     if (!trend || trend.length === 0) {
         return (
@@ -141,6 +157,8 @@ function ScoreGraph({ trend }) {
                         <g key={i}
                             onMouseEnter={() => setHovered(i)}
                             onMouseLeave={() => setHovered(null)}
+                            onDoubleClick={() => onSelectPoint && onSelectPoint(i)}
+                            onTouchStart={(e) => { e.preventDefault(); handleTap(i); }}
                             style={{ cursor: "pointer" }}>
                             <circle cx={cx} cy={cy} r={isHov ? 7 : 5}
                                 fill={fill} stroke="white" strokeWidth="2"
@@ -218,6 +236,8 @@ export default function TrendsView({ refreshTick, token, isGuest }) {
     const { t } = useTranslate();
     const [analytics, setAnalytics] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [selectedPoint, setSelectedPoint] = useState(null);
+    const [selectedAdditive, setSelectedAdditive] = useState(null); // { name, products[] }
 
     useEffect(() => {
         if (isGuest) { setLoading(false); return; }
@@ -309,9 +329,9 @@ export default function TrendsView({ refreshTick, token, isGuest }) {
                     </span>
                 </div>
                 <p className="text-slate-400 text-[10px] mb-3">
-                    Y-axis = health score · X-axis = scan # · hover dot for details
+                    Y-axis = health score · X-axis = scan # · double-click dot for details
                 </p>
-                <ScoreGraph trend={graphTrend} />
+                <ScoreGraph trend={graphTrend} onSelectPoint={(i) => setSelectedPoint(graphTrend[i])} />
             </div>
 
             {/* Daily Average bar chart */}
@@ -339,20 +359,36 @@ export default function TrendsView({ refreshTick, token, isGuest }) {
 
             {/* Top Flagged Additives */}
             <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm">
-                <p className="font-black text-gray-900 text-sm uppercase tracking-widest mb-4">{t("Top Flagged Additives")}</p>
+                <p className="font-black text-gray-900 text-sm uppercase tracking-widest mb-1">{t("Top Flagged Additives")}</p>
+                <p className="text-slate-400 text-[10px] mb-4">{t("Tap an additive to see which products contained it")}</p>
                 <div className="space-y-3">
                     {analytics.top_additives && analytics.top_additives.length > 0 ? (
-                        analytics.top_additives.map((item, i) => (
-                            <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100">
-                                <div className="flex items-center gap-3">
-                                    <span className="text-xl">{i === 0 ? "🚫" : i === 1 ? "⚠️" : "🔶"}</span>
-                                    <p className="font-bold text-gray-800 text-xs">{item.name}</p>
-                                </div>
-                                <span className="bg-white px-3 py-1 rounded-full border border-slate-200 text-[10px] font-black text-slate-500">
-                                    {item.count}×
-                                </span>
-                            </div>
-                        ))
+                        analytics.top_additives.map((item, i) => {
+                            const allTrend = analytics.history_trend || [];
+                            const products = allTrend.filter(scan =>
+                                Array.isArray(scan.flagged_additives) &&
+                                scan.flagged_additives.some(a =>
+                                    (typeof a === "object" ? a.name : a) === item.name
+                                )
+                            );
+                            return (
+                                <button key={i}
+                                    onClick={() => setSelectedAdditive({ name: item.name, products })}
+                                    className="w-full flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100 active:scale-[0.98] hover:border-slate-300 hover:shadow-sm transition-all text-left">
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-xl">{i === 0 ? "🚫" : i === 1 ? "⚠️" : "🔶"}</span>
+                                        <div>
+                                            <p className="font-bold text-gray-800 text-xs">{item.name}</p>
+                                            <p className="text-slate-400 text-[9px] mt-0.5">{products.length} product{products.length !== 1 ? "s" : ""}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="bg-white px-3 py-1 rounded-full border border-slate-200 text-[10px] font-black text-slate-500">{item.count}×</span>
+                                        <span className="text-slate-300 text-xs">›</span>
+                                    </div>
+                                </button>
+                            );
+                        })
                     ) : (
                         <p className="text-center text-slate-400 text-xs italic py-4">
                             {t("No recurring additives yet — scan more products!")}
@@ -360,6 +396,53 @@ export default function TrendsView({ refreshTick, token, isGuest }) {
                     )}
                 </div>
             </div>
+
+            {/* Additive detail popup */}
+            {selectedAdditive && (
+                <div className="fixed inset-0 z-[9999] flex items-end justify-center">
+                    <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={() => setSelectedAdditive(null)} />
+                    <div className="relative w-full max-w-md bg-white rounded-t-[32px] px-6 pt-6 pb-10 shadow-2xl">
+                        <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-5" />
+                        <div className="flex items-center gap-3 mb-5">
+                            <div className="w-12 h-12 rounded-2xl bg-red-100 flex items-center justify-center text-2xl shrink-0">🚫</div>
+                            <div>
+                                <p className="font-black text-slate-900 text-base leading-tight">{selectedAdditive.name}</p>
+                                <p className="text-slate-400 text-xs mt-0.5">
+                                    Found in {selectedAdditive.products.length} scanned product{selectedAdditive.products.length !== 1 ? "s" : ""}
+                                </p>
+                            </div>
+                        </div>
+                        {selectedAdditive.products.length > 0 ? (
+                            <div className="space-y-2 max-h-[45vh] overflow-y-auto pr-1">
+                                {selectedAdditive.products.map((scan, idx) => {
+                                    const score = scan.grade || "YELLOW";
+                                    const gradMap = { GREEN: "from-emerald-400 to-green-500", RED: "from-red-500 to-rose-600", YELLOW: "from-amber-400 to-yellow-500" };
+                                    return (
+                                        <div key={idx} className="flex items-center gap-3 bg-slate-50 rounded-2xl p-3 border border-slate-100">
+                                            <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${gradMap[score] || gradMap.YELLOW} flex items-center justify-center shrink-0`}>
+                                                <span className="text-white text-xs font-black">{scan.score ?? "–"}</span>
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="font-black text-slate-900 text-xs truncate">{scan.product || "Unknown Product"}</p>
+                                                {scan.brand && <p className="text-slate-400 text-[9px] truncate">{scan.brand}</p>}
+                                            </div>
+                                            <span className="text-[9px] font-black text-slate-400 shrink-0">{(scan.timestamp || "").slice(0, 10)}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div className="bg-slate-50 rounded-2xl p-6 text-center">
+                                <p className="text-slate-400 text-xs font-bold">No detailed product data available for this additive.</p>
+                            </div>
+                        )}
+                        <button onClick={() => setSelectedAdditive(null)}
+                            className="mt-5 w-full h-12 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest active:scale-95 transition-all">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -20,14 +20,15 @@ const scoreConfig = {
 
 // ── NutritionCard ──────────────────────────────────────────────────────────────
 const NutritionCard = ({ nutrition }) => {
+  const { t } = useTranslate();
   if (!nutrition) return null;
   const items = [
-    { label: "Calories", val: nutrition.calories || "N/A", color: "text-slate-900" },
-    { label: "Protein", val: nutrition.protein || "N/A", color: "text-emerald-600" },
-    { label: "Fat", val: nutrition.total_fat || "N/A", color: "text-orange-500" },
-    { label: "Sugar", val: nutrition.sugar || "N/A", color: "text-red-500" },
-    { label: "Carbs", val: nutrition.carbs || "N/A", color: "text-blue-500" },
-    { label: "Sodium", val: nutrition.sodium || "N/A", color: "text-purple-500" },
+    { label: t("Calories"), val: nutrition.calories || "N/A", color: "text-slate-900" },
+    { label: t("Protein"), val: nutrition.protein || "N/A", color: "text-emerald-600" },
+    { label: t("Fat"), val: nutrition.total_fat || "N/A", color: "text-orange-500" },
+    { label: t("Sugar"), val: nutrition.sugar || "N/A", color: "text-red-500" },
+    { label: t("Carbs"), val: nutrition.carbs || "N/A", color: "text-blue-500" },
+    { label: t("Sodium"), val: nutrition.sodium || "N/A", color: "text-purple-500" },
   ];
   return (
     <div className="grid grid-cols-3 gap-2 mb-6">
@@ -43,6 +44,7 @@ const NutritionCard = ({ nutrition }) => {
 
 // ── ScoreReveal overlay ────────────────────────────────────────────────────────
 const ScoreReveal = ({ result, onDone }) => {
+  const { t } = useTranslate();
   const [phase, setPhase] = useState("initial"); // initial→nutrition→additives→score
   const [displayNum, setDisplayNum] = useState(0);
   const score = result.health_score || "YELLOW";
@@ -323,6 +325,8 @@ export default function Home() {
     const reader = new FileReader();
     reader.onloadend = () => setCapturedImage(reader.result);
     reader.readAsDataURL(file);
+    // Reset input so the same file can be re-selected and onChange fires again
+    e.target.value = "";
   };
 
   // Core scan logic — barcode mode: /api/scan (XGBoost+DB, no RAG)
@@ -823,7 +827,7 @@ export default function Home() {
                     <div className="mt-4 flex flex-col gap-2">
                       {capturedImage ? (
                         <button
-                          onClick={() => { setLabelIngredientsImage(capturedImage); setCapturedImage(null); setLabelStep("nutrition"); }}
+                          onClick={() => { setLabelIngredientsImage(capturedImage); setCapturedImage(null); if (fileInputRef.current) fileInputRef.current.value = ""; setLabelStep("nutrition"); }}
                           className="w-full h-14 bg-gradient-to-r from-[#3a3f85] to-[#6c63ff] text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-lg active:scale-95 transition-all">
                           {t("Use This Photo → Scan Nutrition Table")}
                         </button>

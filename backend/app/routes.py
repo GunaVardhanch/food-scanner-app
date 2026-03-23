@@ -39,7 +39,7 @@ from app.services.barcode_service import extract_barcode_from_image
 from app.services.nutrition_db import get_product_by_gtin
 
 # ── History & analytics service ───────────────────────────────────────────────
-from app.services.history_service import save_scan, get_history, get_analytics, init_db
+from app.services.history_service import save_scan, get_history, get_analytics, init_db, delete_scan
 
 # ── Legacy OCR/NLP services (kept for research, NOT called in primary flow) ───
 from app.services.ocr_pipeline import AdvancedOCRPipeline
@@ -328,14 +328,21 @@ def scan():
     risk_tier = risk_summary.get("risk_tier", "SAFE")
     if risk_tier in ("CRITICAL", "HIGH_RISK"):
         health_score = "RED"
-    elif risk_tier == "MODERATE_RISK" and score_value >= 7.0:
+    elif risk_tier == "MODERATE_RISK" and score_value >= 7.5:
         health_score = "YELLOW"
     else:
         health_score = (
-            "GREEN"  if score_value >= 7.0 else
-            "YELLOW" if score_value >= 4.0 else
+            "GREEN"  if score_value >= 7.5 else
+            "YELLOW" if score_value >= 5.0 else
             "RED"
         )
+
+    # NutriScore hard gate — never allow GREEN if official grade is C, D or E
+    _ns_grade = scoring_engine.get_nutriscore(features).get("grade", "C")
+    if _ns_grade in ("C", "D", "E") and health_score == "GREEN":
+        health_score = "YELLOW"
+    if _ns_grade in ("D", "E") and health_score == "YELLOW":
+        health_score = "RED"
 
     # ── Step 5a: Build flat nutrition dict the frontend expects ───────────────
     def _fmt(val, unit="g"):
@@ -462,6 +469,7 @@ def scan():
             flagged_additives=detected_additives,
             healthy_alternative=healthy_alt,
             source=product.get("source"),
+            scan_mode="barcode",
             user_id=user_id,
         )
         logger.info(
@@ -618,6 +626,16 @@ def history():
     limit = min(int(request.args.get("limit", 50)), 200)
     user_id = _get_current_user_id()
     return jsonify(get_history(limit=limit, user_id=user_id))
+
+
+@bp.route("/history/<int:scan_id>", methods=["DELETE"])
+def delete_history_item(scan_id: int):
+    """Delete a specific scan from history (only the owner can delete)."""
+    user_id = _get_current_user_id()
+    removed = delete_scan(scan_id=scan_id, user_id=user_id)
+    if removed:
+        return jsonify({"status": "ok", "deleted": scan_id}), 200
+    return jsonify({"status": "error", "message": "not found or not authorized"}), 404
 
 
 @bp.route("/analytics", methods=["GET"])
@@ -945,6 +963,7 @@ def scan_label():
                 flagged_additives=detected_additives,
                 healthy_alternative=healthy_alt,
                 source=product.get("source", "ocr_extracted"),
+                scan_mode="label",
                 user_id=user_id,
             )
             logger.info("scan-label: saved to history (user_id=%s)", user_id)
