@@ -149,6 +149,63 @@ def _get_xai_service() -> XAIService:
     return _xai_service_singleton
 
 
+def _merge_rag_enrichment(response: Dict[str, Any], rag: Dict[str, Any]) -> None:
+    """
+    Merge RAG pipeline findings INTO the main response dict (in-place).
+
+    RAG NEVER overrides health_score or score_value — those come from the
+    heuristic/XGBoost + verified nutrition DB.  RAG only ADDS:
+      • allergens_detected      — new field
+      • ultra_processed_markers — new field
+      • fssai_compliance        — new field
+      • rag_warnings            — extra human-readable warnings
+      • rag_warning_details     — structured {title, explanation} list
+      • additives               — enriched with RAG explanation text where available
+      • healthy_alternative     — upgraded if RAG has a better tip
+    """
+    if not rag or rag.get("error"):
+        return
+
+    # ── New fields ────────────────────────────────────────────────────────────
+    response["allergens_detected"]      = rag.get("allergens_detected", [])
+    response["ultra_processed_markers"] = rag.get("ultra_processed_markers_found", [])
+    response["fssai_compliance"]        = rag.get("fssai_compliance", True)
+    response["fssai_compliance_msg"]    = rag.get("compliance_message", "")
+
+    # ── Extra warnings (don't duplicate existing ones) ────────────────────────
+    existing_warnings = set(response.get("warnings") or [])
+    rag_warnings = [w for w in (rag.get("warnings") or []) if w not in existing_warnings]
+    response["rag_warnings"]        = rag_warnings
+    response["rag_warning_details"] = rag.get("warning_details", [])
+
+    # ── Enrich additive entries with RAG explanation text ────────────────────
+    rag_flags_by_code: Dict[str, Dict] = {}
+    for flag in (rag.get("additive_flags") or []):
+        code = flag.get("code", "").upper().replace(" ", "")
+        if code:
+            rag_flags_by_code[code] = flag
+
+    enriched_additives = []
+    for add in (response.get("additives") or []):
+        # Extract code from "Name (INS 621)" format
+        import re as _re
+        m = _re.search(r"\(([^)]+)\)\s*$", add.get("name", ""))
+        code_key = m.group(1).upper().replace(" ", "") if m else ""
+        rag_flag = rag_flags_by_code.get(code_key)
+        if rag_flag and rag_flag.get("explanation"):
+            add = {**add, "rag_explanation": rag_flag["explanation"]}
+        enriched_additives.append(add)
+    response["additives"] = enriched_additives
+
+    # ── Upgrade healthy_alternative if RAG has a better tip ──────────────────
+    rag_tip = rag.get("healthy_alternative")
+    if rag_tip and not response.get("healthy_alternative"):
+        response["healthy_alternative"] = rag_tip
+
+    # ── Keep full RAG result for debugging / frontend expansion ──────────────
+    response["rag_analysis"] = rag
+
+
 def _get_legacy_services():
     global _ocr_pipeline, _ner_service
     if _ocr_pipeline is None:
@@ -439,6 +496,36 @@ def scan():
     )
     nutriscore_info = scoring_engine.get_nutriscore(features)
 
+    # ── Step 5d: RAG enrichment (barcode path) ────────────────────────────────
+    # Uses pre-parsed ingredients from the DB — never touches health_score.
+    # Adds: allergens, ultra-processed markers, FSSAI compliance, richer additive text.
+    _rag_barcode_result: Dict[str, Any] = {}
+    if getattr(_config, "RAG_BARCODE_ENABLED", True):
+        try:
+            from rag_pipeline import analyze_label_text as _rag_analyze
+            _rag_barcode_result = _rag_analyze(
+                ingredients_text=ingredients_text,
+                pre_parsed_nutrition={
+                    "calories":        n100.get("energy_kcal"),
+                    "sugars_g":        n100.get("sugars_g"),
+                    "fat_g":           n100.get("fat_g"),
+                    "saturated_fat_g": n100.get("saturated_fat_g"),
+                    "fiber_g":         n100.get("fiber_g"),
+                    "protein_g":       n100.get("protein_g"),
+                    "sodium_mg":       n100.get("sodium_mg"),
+                    "trans_fat_g":     n100.get("trans_fat_g"),
+                },
+                pre_parsed_ingredients=ingredients_list,
+            )
+            logger.info(
+                "RAG barcode enrichment — allergens=%s | UP_markers=%d | compliant=%s",
+                _rag_barcode_result.get("allergens_detected", []),
+                len(_rag_barcode_result.get("ultra_processed_markers_found", [])),
+                _rag_barcode_result.get("fssai_compliance", True),
+            )
+        except Exception as _rag_exc:
+            logger.warning("RAG barcode enrichment skipped (non-fatal): %s", _rag_exc)
+
     # ── Step 6: Return enriched response ─────────────────────────────────────
     response_body: Dict[str, Any] = {
         **product,
@@ -455,6 +542,11 @@ def scan():
         "scan_mode":             "barcode",
         "xai":                   {"shap_impacts": xai_explanations},
     }
+
+    # Merge RAG enrichment (allergens, ultra-processed markers, FSSAI compliance,
+    # richer additive explanations) — never overrides score
+    if _rag_barcode_result:
+        _merge_rag_enrichment(response_body, _rag_barcode_result)
 
     # ── Step 7: Auto-save scan to history ────────────────────────────────────
     try:
@@ -944,9 +1036,11 @@ def scan_label():
                     nutrition_text=raw_ocr_text,
                     ingredients_text=ingredients_text,
                 )
-                response_body["rag_analysis"] = _rag_result
-                logger.info("RAG label analysis complete — score=%.1f (%s)",
-                    _rag_result.get("score", 0), _rag_result.get("score_grade", "?"))
+                _merge_rag_enrichment(response_body, _rag_result)
+                logger.info("RAG label enrichment — score=%.1f (%s) | allergens=%s | UP=%d",
+                    _rag_result.get("score", 0), _rag_result.get("score_grade", "?"),
+                    _rag_result.get("allergens_detected", []),
+                    len(_rag_result.get("ultra_processed_markers_found", [])))
             except Exception as _rag_exc:
                 logger.warning("RAG pipeline skipped (non-fatal): %s", _rag_exc)
 

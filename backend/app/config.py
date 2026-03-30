@@ -27,10 +27,16 @@ NUTRITION_NER_MODEL_DIR = os.path.join(MODEL_DIR, "nutrition_ner")
 OCR_MODELS_DIR = os.path.join(MODEL_DIR, "ocr_models")
 
 # ── RAG pipeline ──────────────────────────────────────────────────────────────
-# RAG is ONLY used in the label/ingredient photo scan pipeline (/api/scan-label).
-# The barcode scan (/api/scan) uses the XGBoost model + verified nutrition DB
-# for scoring — RAG must NOT override those verified scores.
-# Set RAG_LABEL_ENABLED=false to disable RAG even for label scans.
-RAG_ENABLED = False  # Barcode path: NEVER use RAG (score from XGBoost + DB)
-RAG_LABEL_ENABLED = os.getenv("RAG_LABEL_ENABLED", "true").lower() == "true"  # Label path only
+# RAG enrichment runs as an ADDITIONAL stage — it never overrides the main
+# health_score (which comes from XGBoost/heuristic + verified nutrition DB).
+# It contributes: allergens, ultra-processed markers, FSSAI compliance,
+# maida detection, richer additive explanations, and warning_details.
+#
+# RAG_LABEL_ENABLED  — label/OCR scan path (/api/scan-label)  [default: true]
+# RAG_BARCODE_ENABLED — barcode scan path (/api/scan)          [default: true]
+#   On the barcode path RAG uses pre_parsed_ingredients from the DB,
+#   so it never touches the score — only adds allergen/UP-marker metadata.
+RAG_ENABLED = False  # legacy flag kept for /analyze endpoint compat
+RAG_LABEL_ENABLED   = os.getenv("RAG_LABEL_ENABLED",   "true").lower() == "true"
+RAG_BARCODE_ENABLED = os.getenv("RAG_BARCODE_ENABLED", "true").lower() == "true"
 

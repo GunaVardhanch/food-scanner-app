@@ -1,0 +1,104 @@
+%%{
+  init: {
+    'theme': 'base',
+    'themeVariables': {
+      'fontSize': '20px',
+      'fontFamily': 'Segoe UI, Helvetica, Arial, sans-serif',
+      'primaryColor': '#ffffff',
+      'primaryBorderColor': '#1e88e5',
+      'lineColor': '#2c3e50',
+      'nodeBorder': '2px'
+    }
+  }
+}%%
+graph LR
+    %% External Entities
+    User[App User]
+    SettingsApp[User Settings Interface]
+    TranslateAPI[Translation Service Proxies]
+    
+    %% System Layers Boundary
+    subgraph NutriScanner_System [NutriScanner Application Constraints]
+        direction LR
+        
+        %% Input Layer
+        subgraph Input_Layer [1. Input Processing]
+            direction TB
+            P1((1. Scan Input Handler))
+        end
+        
+        %% Storage Layer
+        subgraph Databases [Data Storage]
+            direction TB
+            D1[(User Profile & History DB)]
+            D2[(Nutrition Datastore)]
+        end
+
+        %% Core Processing Layer
+        subgraph Processing_Engines [2. Assessment Engines]
+            direction TB
+            P2((2. Image OCR Extraction))
+            P3((3. GTIN Fetch Process))
+            P4((4. NLP Additives Analysis))
+            P5((5. Dietary Constraint Checker))
+            P6((6. XGBoost Health Scoring))
+            P7((7. Translator Service Handler))
+        end
+        
+        %% Output Layer
+        subgraph Output_Layer [3. Output Generation]
+            direction TB
+            P8((8. UI Report Renderer))
+        end
+    end
+
+    %% -- Connections --
+    
+    %% External Inputs
+    User -- Image --> P1
+    User -- Barcode GTIN --> P1
+    SettingsApp -- Dietary Preferences --> D1
+
+    %% Input to Processing Engines & DB Lookups
+    P1 -- Scan Type = Image --> P2
+    P1 -- Scan Type = Barcode --> P3
+    
+    P3 -- Request Info --> D2
+    D2 -- Product Nutrition & Ingredients --> P3
+
+    %% Extractions and Lookups into Assessment components
+    P2 -- Raw Text / Extracted Details --> P4
+    P2 -- Raw Text / Extracted Details --> P5
+    P3 -- Fetched Data --> P4
+    P3 -- Fetched Data --> P5
+    
+    D1 -- Selected Preferences --> P5
+    
+    %% Assessment feeding into Final Score
+    P4 -- Detected Additive Risks --> P6
+    P5 -- Constraint Flags --> P6
+    P2 -- Macronutrients --> P6
+    P3 -- Macronutrients --> P6
+
+    %% Translation Loop (Internal to External)
+    P6 -- Text Sent for Translation --> P7
+    P7 -- Translation Requests --> TranslateAPI
+    TranslateAPI -- Translated Text --> P7
+    P7 -- Parsed Translation --> P6
+    
+    %% Final Result Assembly & Output
+    P6 -- Final Analysis Score --> P8
+    P8 -- Generated Results --> User
+    
+    P8 -- Sync Scan Details --> D1
+
+    %% Styling 
+    classDef process fill:#e3f2fd,stroke:#1e88e5,stroke-width:2px;
+    classDef entity fill:#f5f5f5,stroke:#9e9e9e,stroke-width:2px;
+    classDef datastore fill:#fff3e0,stroke:#fb8c00,stroke-width:2px;
+    classDef system fill:none,stroke:#666,stroke-width:2px,stroke-dasharray: 5 5;
+    
+    class P1,P2,P3,P4,P5,P6,P7,P8 process;
+    class User,SettingsApp,TranslateAPI entity;
+    class D1,D2 datastore;
+    class NutriScanner_System system;
