@@ -458,7 +458,7 @@ def main():
         print("  Run 'python run_local.py' once first to create the database.")
         sys.exit(1)
 
-    products = fetch_india_products(target_count=1000)
+    products = fetch_india_products(target_count=50)
     if len(products) < 10:
         print("Not enough products fetched. Check your internet connection.")
         sys.exit(1)

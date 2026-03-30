@@ -145,10 +145,17 @@ class HealthScoreEnsemble:
     def calculate_raw_score(self, features: dict) -> float:
         """
         Calculate health score (0.5–10) from a features dict.
-        Uses calibrated heuristic + NutriScore ceiling.
-        XGBoost model is bypassed — the trained model produced unreliable
-        scores (e.g. Apple=3.7/RED) due to noisy training labels.
+        Uses XGBoost model if available, else falls back to heuristic.
         """
+        if self.model and _XGB_AVAILABLE:
+            try:
+                vec = build_feature_vector(features)
+                pred = self.predict(vec)
+                return self._apply_nutriscore_ceiling(pred, features)
+            except Exception as e:
+                print(f"Prediction failed ({e}), falling back to heuristic.")
+                return self._heuristic_score(features)
+        
         return self._heuristic_score(features)
 
     def _apply_nutriscore_ceiling(self, score: float, features: dict) -> float:

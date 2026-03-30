@@ -14,3 +14,5 @@ easyocr
 ultralytics
 pyzbar
 deep-translator
+thefuzz
+python-Levenshtein

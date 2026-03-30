@@ -356,53 +356,51 @@ class AdvancedOCRPipeline:
     # ── Label → canonical key mapping ────────────────────────────────────────
 
     def _map_label_to_key(self, label: str, value_text: str) -> Optional[str]:
-        """Map a raw OCR nutrient label string to a canonical dict key."""
-        l = label.strip()
-
-        # Skip header / reference rows — these are column headers, not nutrients
+        """Map a raw OCR nutrient label string to a canonical dict key using fuzzy matching."""
+        l = label.strip().lower()
+        
         if any(w in l for w in ("serving", "per serve", "per serving", "per 100", "amount")):
             return None
+            
+        try:
+            from thefuzz import fuzz
+            import thefuzz
+        except ImportError:
+            # Fallback block if uninstalled
+            if "energy" in l or "kcal" in l or "cal" in l or "ऊर्जा" in l: return "energy_kcal"
+            if "sat" in l or "saturated" in l: return "saturated_fat_g"
+            if "fat" in l or "वसा" in l: return "fat_g"
+            if "sugar" in l or "शर्करा" in l: return "sugar_g"
+            if "carb" in l or "carbohydrate" in l: return "carbohydrates_g"
+            if "protein" in l or "प्रोटीन" in l: return "protein_g"
+            if "fiber" in l or "fibre" in l: return "fiber_g"
+            if "sodium" in l or "salt" in l or "सोडियम" in l: return "sodium_mg"
+            return None
 
-        # Energy — distinguish kJ vs kcal
-        if any(w in l for w in ("energy", "calories", "kcal", "cal")):
-            if "kj" in l or "kj" in value_text.lower():
-                # Convert kJ → kcal
-                return "energy_kcal"  # caller stores raw value; conversion below
+        # Energy usually needs special handling due to kj/kcal split
+        if fuzz.partial_ratio("energy", l) > 80 or fuzz.partial_ratio("calories", l) > 80 or "kcal" in l or "cal" in l:
             return "energy_kcal"
 
-        if "saturated" in l or "sat fat" in l or "saturated fat" in l:
-            return "saturated_fat_g"
-        if "trans" in l:
-            return "trans_fat_g"
-        if "fat" in l or "lipid" in l:
-            return "fat_g"
-
-        if "sugar" in l:
-            return "sugar_g"
-        if "carbohydrate" in l or "carbs" in l or "carb" in l:
-            return "carbohydrates_g"
-
-        if "fibre" in l or "fiber" in l or "dietary fiber" in l:
-            return "fiber_g"
-        if "protein" in l:
-            return "protein_g"
-
-        if "sodium" in l:
-            return "sodium_mg"
-        if "salt" in l:
-            # Salt → sodium: sodium_mg = salt_g * 400
-            return "sodium_mg"
-
-        # Hindi / regional label patterns
-        if "ऊर्जा" in l:
-            return "energy_kcal"
-        if "प्रोटीन" in l:
-            return "protein_g"
-        if "वसा" in l:
-            return "fat_g"
-        if "शर्करा" in l or "चीनी" in l:
-            return "sugar_g"
-        if "सोडियम" in l:
-            return "sodium_mg"
-
-        return None
+        matches = {
+            "saturated_fat_g": ["saturated", "sat fat"],
+            "fat_g": ["fat", "lipid", "total fat", "वसा"],
+            "trans_fat_g": ["trans"],
+            "sugar_g": ["sugar", "sugars", "शर्करा", "चीनी"],
+            "carbohydrates_g": ["carbohydrate", "carbs", "total carbs"],
+            "protein_g": ["protein", "proteins", "प्रोटीन"],
+            "fiber_g": ["fiber", "fibre", "dietary fiber"],
+            "sodium_mg": ["sodium", "salt", "सोडियम"]
+        }
+        
+        best_key = None
+        highest_score = 0
+        
+        for key, targets in matches.items():
+            for target in targets:
+                # Use partial_ratio to handle prefixes/suffixes correctly (e.g., "total fat" in "total fat 12g")
+                score = fuzz.partial_ratio(target.lower(), l)
+                if score > highest_score and score > 80:  # 80 is a strong fuzzy threshold
+                    highest_score = score
+                    best_key = key
+                    
+        return best_key
