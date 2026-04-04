@@ -8,7 +8,6 @@ import AaharHomeTab from "./AaharHomeTab";
 import AaharMyPlanTab from "./AaharMyPlanTab";
 import AaharGroceryTab from "./AaharGroceryTab";
 import AaharProfileTab from "./AaharProfileTab";
-
 import FoodChatbot from "./FoodChatbot";
 
 export default function AaharDashboard() {
