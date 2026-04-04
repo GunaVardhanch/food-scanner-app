@@ -1,0 +1,1254 @@
+[
+  {
+    "id": "INS 102",
+    "name": "Tartrazine",
+    "risk_level": "RED",
+    "category": "Colour",
+    "description": "Artificial yellow dye (Azo). Linked to hyperactivity in children, allergic reactions, and asthma.",
+    "impact": -2.5,
+    "tags": [
+      "Synthetic",
+      "Azo Dye"
+    ],
+    "fssai_status": "restricted",
+    "max_limit_ppm": 100,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 110",
+    "name": "Sunset Yellow FCF",
+    "risk_level": "RED",
+    "category": "Colour",
+    "description": "Synthetic orange-yellow dye (Azo). Associated with allergies, hyperactivity, and urticaria.",
+    "impact": -2.5,
+    "tags": [
+      "Synthetic",
+      "Azo Dye"
+    ],
+    "fssai_status": "restricted",
+    "max_limit_ppm": 100,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 122",
+    "name": "Carmoisine",
+    "risk_level": "RED",
+    "category": "Colour",
+    "description": "Synthetic red dye (Azo). Banned in several countries; linked to hyperactivity and allergic reactions.",
+    "impact": -2.8,
+    "tags": [
+      "Synthetic",
+      "Azo Dye"
+    ],
+    "fssai_status": "restricted",
+    "max_limit_ppm": 50,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 124",
+    "name": "Ponceau 4R",
+    "risk_level": "RED",
+    "category": "Colour",
+    "description": "Synthetic red dye (Azo). Suspected carcinogen; banned in USA and Norway. Linked to hyperactivity.",
+    "impact": -2.8,
+    "tags": [
+      "Synthetic",
+      "Azo Dye"
+    ],
+    "fssai_status": "restricted",
+    "max_limit_ppm": 50,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 127",
+    "name": "Erythrosine",
+    "risk_level": "RED",
+    "category": "Colour",
+    "description": "Cherry-pink synthetic dye. Linked to thyroid tumors in animal studies. Phototoxic.",
+    "impact": -3.0,
+    "tags": [
+      "Synthetic",
+      "Iodine-based"
+    ],
+    "fssai_status": "restricted",
+    "max_limit_ppm": 50,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 129",
+    "name": "Allura Red AC",
+    "risk_level": "RED",
+    "category": "Colour",
+    "description": "Synthetic red dye (Azo). Associated with hyperactivity in children and allergic reactions.",
+    "impact": -2.5,
+    "tags": [
+      "Synthetic",
+      "Azo Dye"
+    ],
+    "fssai_status": "restricted",
+    "max_limit_ppm": 100,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 132",
+    "name": "Indigotine",
+    "risk_level": "ORANGE",
+    "category": "Colour",
+    "description": "Synthetic blue dye. May cause nausea and hypertension in sensitive individuals.",
+    "impact": -1.5,
+    "tags": [
+      "Synthetic"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": 100,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 133",
+    "name": "Brilliant Blue FCF",
+    "risk_level": "ORANGE",
+    "category": "Colour",
+    "description": "Synthetic blue dye. Generally considered safe but may cause allergic reactions in aspirin-sensitive people.",
+    "impact": -1.2,
+    "tags": [
+      "Synthetic"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": 100,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 143",
+    "name": "Fast Green FCF",
+    "risk_level": "ORANGE",
+    "category": "Colour",
+    "description": "Synthetic green dye. Potential allergen; linked to bladder tumors in animal studies.",
+    "impact": -1.5,
+    "tags": [
+      "Synthetic"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": 100,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 150a",
+    "name": "Caramel Colour (Plain)",
+    "risk_level": "YELLOW",
+    "category": "Colour",
+    "description": "Natural colour from heated sugar. Generally safe in moderate quantities.",
+    "impact": -0.3,
+    "tags": [
+      "Natural"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 150d",
+    "name": "Caramel Colour (Sulphite Ammonia)",
+    "risk_level": "ORANGE",
+    "category": "Colour",
+    "description": "Contains 4-MEI, a potentially carcinogenic byproduct. Common in colas and soy sauce.",
+    "impact": -1.8,
+    "tags": [
+      "Processed"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": 200,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 160b",
+    "name": "Annatto",
+    "risk_level": "GREEN",
+    "category": "Colour",
+    "description": "Natural orange-red dye from achiote seeds. Generally safe.",
+    "impact": 0.2,
+    "tags": [
+      "Natural",
+      "Plant-based"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 171",
+    "name": "Titanium Dioxide",
+    "risk_level": "RED",
+    "category": "Colour",
+    "description": "White pigment. Banned as food additive in EU (2022). Potential genotoxicity from nanoparticles.",
+    "impact": -3.0,
+    "tags": [
+      "Synthetic",
+      "Nanoparticle"
+    ],
+    "fssai_status": "watchlist",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 200",
+    "name": "Sorbic Acid",
+    "risk_level": "GREEN",
+    "category": "Preservative",
+    "description": "Naturally occurring preservative. Generally considered safe in food amounts.",
+    "impact": 0.1,
+    "tags": [
+      "Natural"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": 1000,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 202",
+    "name": "Potassium Sorbate",
+    "risk_level": "YELLOW",
+    "category": "Preservative",
+    "description": "Common preservative. Generally safe but may cause mild skin allergies in some individuals.",
+    "impact": -0.5,
+    "tags": [
+      "Synthetic"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": 1000,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 210",
+    "name": "Benzoic Acid",
+    "risk_level": "ORANGE",
+    "category": "Preservative",
+    "description": "Preservative that can form benzene when combined with ascorbic acid (Vitamin C).",
+    "impact": -1.5,
+    "tags": [
+      "Synthetic"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": 750,
+    "interaction_warnings": [
+      "INS 300"
+    ]
+  },
+  {
+    "id": "INS 211",
+    "name": "Sodium Benzoate",
+    "risk_level": "ORANGE",
+    "category": "Preservative",
+    "description": "Common preservative. Can form benzene (carcinogen) when combined with Vitamin C (ascorbic acid).",
+    "impact": -1.5,
+    "tags": [
+      "Synthetic"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": 750,
+    "interaction_warnings": [
+      "INS 300"
+    ]
+  },
+  {
+    "id": "INS 220",
+    "name": "Sulphur Dioxide",
+    "risk_level": "RED",
+    "category": "Preservative",
+    "description": "Potent preservative. Triggers asthma attacks, headaches, and allergic reactions. Destroys Vitamin B1.",
+    "impact": -2.5,
+    "tags": [
+      "Synthetic",
+      "Sulphite"
+    ],
+    "fssai_status": "restricted",
+    "max_limit_ppm": 350,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 223",
+    "name": "Sodium Metabisulphite",
+    "risk_level": "RED",
+    "category": "Preservative",
+    "description": "Sulphite preservative. Can trigger severe asthma, breathing difficulties, and anaphylaxis.",
+    "impact": -2.5,
+    "tags": [
+      "Synthetic",
+      "Sulphite"
+    ],
+    "fssai_status": "restricted",
+    "max_limit_ppm": 350,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 249",
+    "name": "Potassium Nitrite",
+    "risk_level": "RED",
+    "category": "Preservative",
+    "description": "Used in cured meats. Can form carcinogenic nitrosamines. IARC Group 2A carcinogen.",
+    "impact": -3.2,
+    "tags": [
+      "Synthetic",
+      "Nitrite"
+    ],
+    "fssai_status": "restricted",
+    "max_limit_ppm": 200,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 250",
+    "name": "Sodium Nitrite",
+    "risk_level": "RED",
+    "category": "Preservative",
+    "description": "Curing agent in processed meats. Forms carcinogenic nitrosamines. IARC Group 2A carcinogen.",
+    "impact": -3.2,
+    "tags": [
+      "Synthetic",
+      "Nitrite"
+    ],
+    "fssai_status": "restricted",
+    "max_limit_ppm": 200,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 251",
+    "name": "Sodium Nitrate",
+    "risk_level": "RED",
+    "category": "Preservative",
+    "description": "Converts to nitrite in the body. Found in processed meats. Linked to colorectal cancer risk.",
+    "impact": -2.8,
+    "tags": [
+      "Synthetic",
+      "Nitrate"
+    ],
+    "fssai_status": "restricted",
+    "max_limit_ppm": 500,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 282",
+    "name": "Calcium Propionate",
+    "risk_level": "ORANGE",
+    "category": "Preservative",
+    "description": "Mold inhibitor used in breads. Linked to irritability and sleep disturbance in children.",
+    "impact": -1.2,
+    "tags": [
+      "Synthetic"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": 3000,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 300",
+    "name": "Ascorbic Acid (Vitamin C)",
+    "risk_level": "GREEN",
+    "category": "Antioxidant",
+    "description": "Vitamin C used as antioxidant. Safe, but can form benzene when combined with benzoates.",
+    "impact": 0.5,
+    "tags": [
+      "Natural",
+      "Vitamin"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": [
+      "INS 210",
+      "INS 211"
+    ]
+  },
+  {
+    "id": "INS 319",
+    "name": "TBHQ (Tertiary Butylhydroquinone)",
+    "risk_level": "RED",
+    "category": "Preservative",
+    "description": "Synthetic antioxidant to prevent rancidity. Linked to immune system damage, nausea, and vision problems.",
+    "impact": -3.0,
+    "tags": [
+      "Synthetic"
+    ],
+    "fssai_status": "restricted",
+    "max_limit_ppm": 200,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 320",
+    "name": "BHA (Butylated Hydroxyanisole)",
+    "risk_level": "RED",
+    "category": "Preservative",
+    "description": "Synthetic antioxidant. IARC classifies as 'possibly carcinogenic to humans' (Group 2B). Endocrine disruptor.",
+    "impact": -3.0,
+    "tags": [
+      "Synthetic"
+    ],
+    "fssai_status": "restricted",
+    "max_limit_ppm": 200,
+    "interaction_warnings": [
+      "INS 321"
+    ]
+  },
+  {
+    "id": "INS 321",
+    "name": "BHT (Butylated Hydroxytoluene)",
+    "risk_level": "RED",
+    "category": "Preservative",
+    "description": "Synthetic antioxidant. Linked to liver and kidney damage in high doses. Potential endocrine disruptor.",
+    "impact": -2.8,
+    "tags": [
+      "Synthetic"
+    ],
+    "fssai_status": "restricted",
+    "max_limit_ppm": 200,
+    "interaction_warnings": [
+      "INS 320"
+    ]
+  },
+  {
+    "id": "INS 322",
+    "name": "Lecithin",
+    "risk_level": "GREEN",
+    "category": "Emulsifier",
+    "description": "Naturally occurring emulsifier from soy or sunflower. Generally safe.",
+    "impact": 0.5,
+    "tags": [
+      "Natural"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 330",
+    "name": "Citric Acid",
+    "risk_level": "GREEN",
+    "category": "Acidity Regulator",
+    "description": "Common organic acid found in citrus fruits. Generally safe.",
+    "impact": 0.3,
+    "tags": [
+      "Natural"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 338",
+    "name": "Phosphoric Acid",
+    "risk_level": "ORANGE",
+    "category": "Acidity Regulator",
+    "description": "Used extensively in colas. Linked to reduced bone density, kidney problems, and calcium depletion.",
+    "impact": -1.8,
+    "tags": [
+      "Synthetic"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 339",
+    "name": "Sodium Phosphate",
+    "risk_level": "ORANGE",
+    "category": "Acidity Regulator",
+    "description": "Common in processed foods. Excessive intake linked to cardiovascular risk and kidney damage.",
+    "impact": -1.5,
+    "tags": [
+      "Synthetic",
+      "Phosphate"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 341",
+    "name": "Calcium Phosphate",
+    "risk_level": "YELLOW",
+    "category": "Acidity Regulator",
+    "description": "Anti-caking agent and mineral supplement. Generally safe in food amounts.",
+    "impact": -0.3,
+    "tags": [
+      "Mineral"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 407",
+    "name": "Carrageenan",
+    "risk_level": "ORANGE",
+    "category": "Stabilizer",
+    "description": "Seaweed-derived thickener. Linked to gut inflammation and digestive issues. Under FSSAI review.",
+    "impact": -1.5,
+    "tags": [
+      "Natural",
+      "Controversial"
+    ],
+    "fssai_status": "watchlist",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 412",
+    "name": "Guar Gum",
+    "risk_level": "GREEN",
+    "category": "Stabilizer",
+    "description": "Naturally derived thickener from guar beans. Generally safe. Common in Indian products.",
+    "impact": 0.2,
+    "tags": [
+      "Natural",
+      "Plant-based"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 414",
+    "name": "Gum Arabic",
+    "risk_level": "GREEN",
+    "category": "Stabilizer",
+    "description": "Natural gum from Acacia tree. Generally safe as thickener and stabilizer.",
+    "impact": 0.2,
+    "tags": [
+      "Natural",
+      "Plant-based"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 415",
+    "name": "Xanthan Gum",
+    "risk_level": "GREEN",
+    "category": "Stabilizer",
+    "description": "Natural polysaccharide used as thickener. Generally safe.",
+    "impact": 0.2,
+    "tags": [
+      "Natural"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 420",
+    "name": "Sorbitol",
+    "risk_level": "YELLOW",
+    "category": "Sweetener",
+    "description": "Sugar alcohol. Excessive consumption causes bloating, diarrhea, and GI distress.",
+    "impact": -0.8,
+    "tags": [
+      "Sugar Alcohol"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 422",
+    "name": "Glycerol",
+    "risk_level": "GREEN",
+    "category": "Humectant",
+    "description": "Naturally occurring humectant. Generally safe in food use.",
+    "impact": 0.1,
+    "tags": [
+      "Natural"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 433",
+    "name": "Polysorbate 80",
+    "risk_level": "ORANGE",
+    "category": "Emulsifier",
+    "description": "Synthetic emulsifier. May disrupt gut microbiome and promote intestinal inflammation.",
+    "impact": -1.5,
+    "tags": [
+      "Synthetic"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": 1000,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 435",
+    "name": "Polysorbate 60",
+    "risk_level": "ORANGE",
+    "category": "Emulsifier",
+    "description": "Synthetic emulsifier. Similar concerns to Polysorbate 80 regarding gut health.",
+    "impact": -1.2,
+    "tags": [
+      "Synthetic"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": 1000,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 440",
+    "name": "Pectin",
+    "risk_level": "GREEN",
+    "category": "Stabilizer",
+    "description": "Natural gelling agent from fruit. Generally safe and may have prebiotic benefits.",
+    "impact": 0.3,
+    "tags": [
+      "Natural",
+      "Plant-based"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 450",
+    "name": "Sodium Pyrophosphate",
+    "risk_level": "ORANGE",
+    "category": "Emulsifier",
+    "description": "Phosphate-based additive. High phosphate intake linked to cardiovascular and renal risk.",
+    "impact": -1.2,
+    "tags": [
+      "Synthetic",
+      "Phosphate"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 452",
+    "name": "Sodium Polyphosphate",
+    "risk_level": "ORANGE",
+    "category": "Emulsifier",
+    "description": "Synthetic phosphate emulsifier. Excessive phosphate intake linked to bone and kidney issues.",
+    "impact": -1.2,
+    "tags": [
+      "Synthetic",
+      "Phosphate"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 466",
+    "name": "Sodium CMC (Carboxymethyl Cellulose)",
+    "risk_level": "ORANGE",
+    "category": "Stabilizer",
+    "description": "Semi-synthetic thickener. Studies suggest it may promote gut inflammation and disrupt microbiome.",
+    "impact": -1.2,
+    "tags": [
+      "Semi-synthetic"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 471",
+    "name": "Mono- and Diglycerides",
+    "risk_level": "YELLOW",
+    "category": "Emulsifier",
+    "description": "May contain trans-fats. Source can be animal or vegetable fat (non-vegetarian risk).",
+    "impact": -0.8,
+    "tags": [
+      "Processed"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 481",
+    "name": "Sodium Stearoyl Lactylate",
+    "risk_level": "YELLOW",
+    "category": "Emulsifier",
+    "description": "Dough strengthener. Generally considered safe. May be sourced from animal fats.",
+    "impact": -0.5,
+    "tags": [
+      "Processed"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 500",
+    "name": "Sodium Bicarbonate",
+    "risk_level": "GREEN",
+    "category": "Leavening Agent",
+    "description": "Baking soda. Generally safe in food amounts.",
+    "impact": 0.2,
+    "tags": [
+      "Natural"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 508",
+    "name": "Potassium Chloride",
+    "risk_level": "YELLOW",
+    "category": "Flavour Modifier",
+    "description": "Salt substitute. Can cause hyperkalemia in people with kidney disease.",
+    "impact": -0.5,
+    "tags": [
+      "Mineral"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 551",
+    "name": "Silicon Dioxide",
+    "risk_level": "YELLOW",
+    "category": "Anti-caking Agent",
+    "description": "Common anti-caking agent. Nano-sized particles under safety review globally.",
+    "impact": -0.3,
+    "tags": [
+      "Mineral"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": 10000,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 621",
+    "name": "MSG (Monosodium Glutamate)",
+    "risk_level": "RED",
+    "category": "Flavour Enhancer",
+    "description": "Common flavour enhancer. Linked to 'Chinese Restaurant Syndrome', headaches, and neurotoxicity in sensitive individuals.",
+    "impact": -3.5,
+    "tags": [
+      "Flavour Enhancer"
+    ],
+    "fssai_status": "restricted",
+    "max_limit_ppm": 10000,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 627",
+    "name": "Disodium Guanylate",
+    "risk_level": "ORANGE",
+    "category": "Flavour Enhancer",
+    "description": "Often used with MSG. Should be avoided by people with gout or uric acid issues.",
+    "impact": -1.2,
+    "tags": [
+      "Flavour Enhancer"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 631",
+    "name": "Disodium Inosinate",
+    "risk_level": "ORANGE",
+    "category": "Flavour Enhancer",
+    "description": "Often paired with MSG. Should be avoided by people with gout or uric acid issues.",
+    "impact": -1.2,
+    "tags": [
+      "Flavour Enhancer"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 635",
+    "name": "Disodium 5'-Ribonucleotides",
+    "risk_level": "ORANGE",
+    "category": "Flavour Enhancer",
+    "description": "Blend of INS 627 and INS 631. Avoid with gout. Often used alongside MSG.",
+    "impact": -1.2,
+    "tags": [
+      "Flavour Enhancer"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 900a",
+    "name": "Dimethylpolysiloxane",
+    "risk_level": "ORANGE",
+    "category": "Anti-foaming Agent",
+    "description": "Silicone-based anti-foaming agent (used in McDonald's frying oil). Controversial safety profile.",
+    "impact": -1.5,
+    "tags": [
+      "Synthetic"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": 10,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 920",
+    "name": "L-Cysteine",
+    "risk_level": "ORANGE",
+    "category": "Flour Treatment Agent",
+    "description": "Dough improver, often derived from human hair or duck feathers. Non-vegetarian source concern.",
+    "impact": -1.0,
+    "tags": [
+      "Processed"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": 75,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 950",
+    "name": "Acesulfame Potassium (Ace-K)",
+    "risk_level": "RED",
+    "category": "Sweetener",
+    "description": "Artificial sweetener 200x sweeter than sugar. Linked to gut microbiome disruption and insulin response alteration.",
+    "impact": -2.5,
+    "tags": [
+      "Artificial Sweetener"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 951",
+    "name": "Aspartame",
+    "risk_level": "RED",
+    "category": "Sweetener",
+    "description": "Artificial sweetener. IARC classified as 'possibly carcinogenic' (Group 2B, 2023). Breaks down to methanol.",
+    "impact": -3.2,
+    "tags": [
+      "Artificial Sweetener"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 952",
+    "name": "Sodium Cyclamate",
+    "risk_level": "RED",
+    "category": "Sweetener",
+    "description": "Artificial sweetener banned in USA. Linked to bladder cancer in animal studies.",
+    "impact": -3.0,
+    "tags": [
+      "Artificial Sweetener"
+    ],
+    "fssai_status": "restricted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 954",
+    "name": "Saccharin",
+    "risk_level": "RED",
+    "category": "Sweetener",
+    "description": "Oldest artificial sweetener. Previously linked to cancer; now considered safer but still controversial.",
+    "impact": -2.0,
+    "tags": [
+      "Artificial Sweetener"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 955",
+    "name": "Sucralose",
+    "risk_level": "ORANGE",
+    "category": "Sweetener",
+    "description": "Chlorinated sugar derivative. May affect gut bacteria and glucose metabolism when heated.",
+    "impact": -1.5,
+    "tags": [
+      "Artificial Sweetener"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 960",
+    "name": "Steviol Glycosides (Stevia)",
+    "risk_level": "GREEN",
+    "category": "Sweetener",
+    "description": "Natural zero-calorie sweetener from Stevia plant. Generally considered safe.",
+    "impact": 0.3,
+    "tags": [
+      "Natural",
+      "Plant-based"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 961",
+    "name": "Neotame",
+    "risk_level": "ORANGE",
+    "category": "Sweetener",
+    "description": "Synthetic sweetener 7000-13000x sweeter than sugar. Derived from aspartame. Limited long-term studies.",
+    "impact": -1.5,
+    "tags": [
+      "Artificial Sweetener"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 296",
+    "name": "Malic Acid",
+    "risk_level": "GREEN",
+    "category": "Acidity Regulator",
+    "description": "Naturally found in apples. Generally safe as food acidulant.",
+    "impact": 0.2,
+    "tags": [
+      "Natural"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 270",
+    "name": "Lactic Acid",
+    "risk_level": "GREEN",
+    "category": "Acidity Regulator",
+    "description": "Naturally occurring acid. Used as preservative and flavouring agent. Generally safe.",
+    "impact": 0.2,
+    "tags": [
+      "Natural"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 260",
+    "name": "Acetic Acid",
+    "risk_level": "GREEN",
+    "category": "Acidity Regulator",
+    "description": "Vinegar acid. Naturally occurring. Generally safe.",
+    "impact": 0.2,
+    "tags": [
+      "Natural"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 501",
+    "name": "Potassium Carbonate",
+    "risk_level": "GREEN",
+    "category": "Acidity Regulator",
+    "description": "Alkaline salt used in food processing. Generally safe.",
+    "impact": 0.1,
+    "tags": [
+      "Mineral"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 334",
+    "name": "Tartaric Acid",
+    "risk_level": "GREEN",
+    "category": "Acidity Regulator",
+    "description": "Naturally found in grapes and tamarind. Common in Indian cuisine. Generally safe.",
+    "impact": 0.2,
+    "tags": [
+      "Natural"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "Palm Oil",
+    "name": "Palm Oil",
+    "risk_level": "RED",
+    "category": "Fat/Oil",
+    "description": "High in saturated fat (palmitic acid). Linked to cardiovascular disease. Environmentally controversial.",
+    "impact": -2.0,
+    "tags": [
+      "High Fat",
+      "Vegan"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "Partially Hydrogenated Vegetable Oil",
+    "name": "Partially Hydrogenated Vegetable Oil",
+    "risk_level": "RED",
+    "category": "Fat/Oil",
+    "description": "Primary source of artificial trans-fats. FSSAI limits trans-fat to 2%. Linked to heart disease, stroke, and diabetes.",
+    "impact": -4.0,
+    "tags": [
+      "Trans Fat",
+      "Processed"
+    ],
+    "fssai_status": "restricted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "Interesterified Fat",
+    "name": "Interesterified Fat",
+    "risk_level": "ORANGE",
+    "category": "Fat/Oil",
+    "description": "Trans-fat alternative but may affect glucose metabolism and HDL cholesterol. Under study.",
+    "impact": -1.5,
+    "tags": [
+      "Processed"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "Vanaspati",
+    "name": "Vanaspati (Hydrogenated Fat)",
+    "risk_level": "RED",
+    "category": "Fat/Oil",
+    "description": "Hydrogenated vegetable fat (Indian dalda). Contains trans-fats. FSSAI mandates < 2% trans-fat.",
+    "impact": -3.5,
+    "tags": [
+      "Trans Fat",
+      "Processed"
+    ],
+    "fssai_status": "restricted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "Potassium Bromate",
+    "name": "Potassium Bromate",
+    "risk_level": "RED",
+    "category": "Flour Treatment Agent",
+    "description": "BANNED by FSSAI in 2016. Known carcinogen. Previously used as bread improver. Still found in some bakery products.",
+    "impact": -5.0,
+    "tags": [
+      "Banned",
+      "Carcinogen"
+    ],
+    "fssai_status": "banned",
+    "max_limit_ppm": 0,
+    "interaction_warnings": []
+  },
+  {
+    "id": "Potassium Iodate",
+    "name": "Potassium Iodate",
+    "risk_level": "RED",
+    "category": "Flour Treatment Agent",
+    "description": "BANNED by FSSAI in 2016 as flour improver. Can cause thyroid dysfunction in excess.",
+    "impact": -4.0,
+    "tags": [
+      "Banned"
+    ],
+    "fssai_status": "banned",
+    "max_limit_ppm": 0,
+    "interaction_warnings": []
+  },
+  {
+    "id": "Brominated Vegetable Oil",
+    "name": "Brominated Vegetable Oil",
+    "risk_level": "RED",
+    "category": "Emulsifier",
+    "description": "Used in citrus-flavoured drinks. Banned in EU, Japan, India. Linked to bromine toxicity and memory loss.",
+    "impact": -4.0,
+    "tags": [
+      "Banned",
+      "Synthetic"
+    ],
+    "fssai_status": "banned",
+    "max_limit_ppm": 0,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 128",
+    "name": "Red 2G",
+    "risk_level": "RED",
+    "category": "Colour",
+    "description": "Synthetic red dye. BANNED in multiple countries including India. Suspected carcinogen and mutagen.",
+    "impact": -5.0,
+    "tags": [
+      "Banned",
+      "Azo Dye"
+    ],
+    "fssai_status": "banned",
+    "max_limit_ppm": 0,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 154",
+    "name": "Brown FK",
+    "risk_level": "RED",
+    "category": "Colour",
+    "description": "Banned food dye. Only legally used in UK for kippers. Banned in most countries.",
+    "impact": -4.5,
+    "tags": [
+      "Banned",
+      "Azo Dye"
+    ],
+    "fssai_status": "banned",
+    "max_limit_ppm": 0,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 925",
+    "name": "Chlorine",
+    "risk_level": "RED",
+    "category": "Flour Treatment Agent",
+    "description": "Used for bleaching flour. Destroys nutrients and creates harmful byproducts. Banned in EU.",
+    "impact": -3.0,
+    "tags": [
+      "Synthetic"
+    ],
+    "fssai_status": "restricted",
+    "max_limit_ppm": 0,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 927a",
+    "name": "Azodicarbonamide (ADA)",
+    "risk_level": "RED",
+    "category": "Flour Treatment Agent",
+    "description": "Dough conditioner/bleaching agent. Banned in EU, Australia. Decomposes to semicarbazide (possible carcinogen).",
+    "impact": -3.5,
+    "tags": [
+      "Synthetic",
+      "Controversial"
+    ],
+    "fssai_status": "restricted",
+    "max_limit_ppm": 45,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 385",
+    "name": "Calcium Disodium EDTA",
+    "risk_level": "ORANGE",
+    "category": "Sequestrant",
+    "description": "Chelating agent. May deplete essential minerals. High doses affect kidneys.",
+    "impact": -1.2,
+    "tags": [
+      "Synthetic"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": 250,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 903",
+    "name": "Carnauba Wax",
+    "risk_level": "GREEN",
+    "category": "Glazing Agent",
+    "description": "Natural plant wax. Used as coating on candies and tablets. Generally safe.",
+    "impact": 0.1,
+    "tags": [
+      "Natural",
+      "Plant-based"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 904",
+    "name": "Shellac",
+    "risk_level": "YELLOW",
+    "category": "Glazing Agent",
+    "description": "Insect-derived coating (lac beetle). Not suitable for vegans/vegetarians.",
+    "impact": -0.3,
+    "tags": [
+      "Animal-derived"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 100",
+    "name": "Curcumin (Turmeric)",
+    "risk_level": "GREEN",
+    "category": "Colour",
+    "description": "Natural yellow colour from turmeric. Anti-inflammatory properties. Safe and beneficial.",
+    "impact": 0.5,
+    "tags": [
+      "Natural",
+      "Plant-based",
+      "Indian"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 141",
+    "name": "Chlorophyll",
+    "risk_level": "GREEN",
+    "category": "Colour",
+    "description": "Natural green pigment from plants. Generally safe.",
+    "impact": 0.3,
+    "tags": [
+      "Natural",
+      "Plant-based"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 160a",
+    "name": "Beta-Carotene",
+    "risk_level": "GREEN",
+    "category": "Colour",
+    "description": "Natural orange pigment and Vitamin A precursor. Safe and nutritionally beneficial.",
+    "impact": 0.5,
+    "tags": [
+      "Natural",
+      "Vitamin",
+      "Plant-based"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "High Fructose Corn Syrup",
+    "name": "High Fructose Corn Syrup (HFCS)",
+    "risk_level": "RED",
+    "category": "Sweetener",
+    "description": "Processed sweetener linked to obesity, fatty liver disease, insulin resistance, and metabolic syndrome.",
+    "impact": -3.0,
+    "tags": [
+      "Processed",
+      "Sugar"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  },
+  {
+    "id": "INS 1520",
+    "name": "Propylene Glycol",
+    "risk_level": "ORANGE",
+    "category": "Humectant",
+    "description": "Moisture retainer also used in antifreeze. FDA GRAS but may cause allergic reactions in sensitive individuals.",
+    "impact": -1.0,
+    "tags": [
+      "Synthetic"
+    ],
+    "fssai_status": "permitted",
+    "max_limit_ppm": null,
+    "interaction_warnings": []
+  }
+]

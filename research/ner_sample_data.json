@@ -1,0 +1,27 @@
+[
+    {
+        "text": "Energy 525 kcal Sugar 30 g MSG E621",
+        "labels": [
+            "B-CAL",
+            "I-CAL",
+            "I-CAL",
+            "B-SUGAR",
+            "I-SUGAR",
+            "I-SUGAR",
+            "B-ADD",
+            "I-ADD"
+        ]
+    },
+    {
+        "text": "Fat 15g Carbohydrates 60g refined sugar",
+        "labels": [
+            "O",
+            "O",
+            "O",
+            "O",
+            "O",
+            "O",
+            "B-SUGAR"
+        ]
+    }
+]

@@ -1,0 +1,149 @@
+---
+title: Food Scanner Application
+emoji: 🍏
+colorFrom: green
+colorTo: blue
+sdk: docker
+pinned: false
+---
+
+<div align="center">
+  <h1>🍏 NutriScanner</h1>
+  <p><strong>Know exactly what's inside your food.</strong></p>
+  <p>A smart web application that analyzes food ingredients and nutrition facts to calculate health scores, detect harmful additives, and ensure it aligns with your dietary preferences.</p>
+</div>
+
+---
+
+## ✨ Features
+
+- **📸 Dual-Mode Scanning**: 
+  - **Barcode Scanner**: Get instant results for known products via a quick GTIN lookup.
+  - **OCR Label Scanner**: Snap a picture of any nutrition label. Using **EasyOCR** and OpenCV, the app reads the tiny text to extract ingredients and nutrition data.
+- **🧠 AI-Powered Brain**:
+  - **Health Scoring**: Uses an **XGBoost** machine learning model to balance macros (sugar, fats, protein) and calculate a comprehensive health score out of 10.
+  - **NLP Additive Detection**: Scans the extracted text for hundreds of preservatives, artificial colors, and chemicals, rating their health risks.
+- **🌍 Multi-language & Global Support**:
+  - Employs **`deep-translator`** under the hood as a proxy translation engine, ensuring accurate, dynamic, and open-source translations for users worldwide.
+- **🥗 Personalized Dietary Alerts**:
+  - Set your profile preferences (e.g., Vegan, Gluten-Free, No Sugar). The Assessment Engine will flag specific ingredients (like Whey for Vegans) and override scores to protect you.
+
+---
+
+## 🛠 Tech Stack
+
+### Frontend
+- **Framework**: [Next.js](https://nextjs.org/) (React)
+- **Styling**: [Tailwind CSS](https://tailwindcss.com/)
+- **Data Visualization**: Recharts
+- **Hosting**: Deployed on **Vercel**
+
+### Backend (The Brain)
+- **Framework**: Python [Flask](https://flask.palletsprojects.com/) API
+- **Machine Learning**: XGBoost, OpenCV, EasyOCR, Transformers, Ultralytics (YOLO)
+- **Translation Engine**: `deep-translator`
+- **Database**: SQLite (User Accounts, Scan History, Preferences)
+- **Hosting**: Deployed on **Hugging Face Spaces**
+
+---
+
+## 🏗 Architecture & Workflow
+
+The app uses a **Dual-Pipeline System**, meaning it can analyze a product in two different ways depending on what you scan.
+
+```mermaid
+flowchart TD
+    %% User Interaction
+    User((🧑 App User))-- "Takes Photo in App" --> App[📱 Next.js Frontend]
+    
+    %% Mode Selection in App
+    App -- "I scanned a Barcode 📦" --> BarcodeScan{Barcode Pipeline}
+    App -- "I scanned a Nutrition Label 🔬" --> LabelScan{Label Pipeline}
+
+    %% Barcode Flow (Fast)
+    BarcodeScan -- "Extracts GTIN" --> DB[(Nutrition Database)]
+    DB -- "Gets Ingredients & Nutrition Facts" --> Brain[🧠 The Assessment Engine]
+    
+    %% Label Flow (Deep)
+    LabelScan -- "Reads Text from Image" --> OCR[📸 EasyOCR Engine]
+    OCR -- "Extracts Sugar, Fat, Additives" --> Brain
+
+    %% The Brain Engine processing
+    subgraph Brain[🧠 The Assessment Engine]
+        direction TB
+        A[🧪 Additives Expert \n Finds INS codes & Preservatives]
+        B[📈 Health Scorer \n XGBoost Machine Learning]
+        C[⚙️ Preferences Checker \n e.g. 'Is it Vegan?']
+        D([🌐 deep-translator \n Open-Source Translation Proxy])
+        
+        A & B & C & D -.-> Final[📊 Calculates Final Score]
+    end
+
+    %% Result back to user
+    Brain -- "Sends Red/Yellow/Green Score" --> UI[📱 Result Screen]
+    UI -- "Saves to History" --> UserDB[(User SQLite DB)]
+```
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+- **Node.js** (v18+)
+- **Python** (3.9+)
+- **Docker** (Optional, for containerized environments)
+
+### 1. Backend Setup (Flask API)
+
+1. Navigate to the backend directory:
+   ```bash
+   cd backend
+   ```
+2. Create and activate a virtual environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. Run the development server:
+   ```bash
+   python run_local.py
+   ```
+   *The API will be available at `http://localhost:5001`.*
+
+### 2. Frontend Setup (Next.js)
+
+1. Navigate to the frontend directory:
+   ```bash
+   cd frontend
+   ```
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Start the Next.js development server:
+   ```bash
+   npm run dev
+   ```
+   *The app will be available at `http://localhost:3000`.*
+
+---
+
+## 🐳 Docker Support
+
+You can run the entire backend stack using Docker. A `Dockerfile` is provided in the root directory (and the backend directory).
+
+```bash
+docker build -t nutriscanner-api .
+docker run -p 5001:5001 nutriscanner-api
+```
+
+---
+
+## 🌐 Deployment
+
+- **Frontend**: The `frontend` directory is optimized for one-click deployment to [Vercel](https://vercel.com).
+- **Backend API**: The `backend` is configured to run smoothly on [Hugging Face Spaces](https://huggingface.co/spaces) using Docker. Ensure environment variables and secrets are set appropriately in the destination platforms.

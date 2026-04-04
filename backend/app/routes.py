@@ -1,0 +1,1871 @@
+"""
+routes.py
+─────────
+Flask API routes for the Food Scanner backend.
+
+Pipeline architecture
+─────────────────────
+PRIMARY (barcode-first)   →  POST /api/scan
+    1. Decode image from base64.
+    2. Barcode-only model → GTIN string.
+    3. GTIN → nutrition DB / API lookup (non-ML).
+    4. Return structured JSON.
+    The image is NEVER sent to OCR or NLP in this flow.
+
+LEGACY (OCR-based)        →  POST /analyze
+    kept for research / debugging, not called by default frontend.
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import hmac
+import json
+import logging
+import os
+import re
+import time
+import uuid
+from functools import wraps
+from typing import Any, Dict, List, Optional
+
+import cv2
+import numpy as np
+from flask import Blueprint, jsonify, request, send_from_directory
+
+# ── Barcode-first services (primary flow) ─────────────────────────────────────
+from app.services.barcode_service import extract_barcode_from_image
+from app.services.nutrition_db import get_product_by_gtin
+
+# ── History & analytics service ───────────────────────────────────────────────
+from app.services.history_service import save_scan, get_history, get_analytics, init_db, delete_scan
+
+# ── Legacy OCR/NLP services (kept for research, NOT called in primary flow) ───
+from app.services.ocr_pipeline import AdvancedOCRPipeline
+from app.services.health_scoring import HealthScoreEnsemble  # also used in primary flow for scoring
+from app.services.additives_expert import AdditivesExpert
+from app.services.ner_service import NERService
+from app.services.xai_service import XAIService
+
+# ── Chatbot service ──────────────────────────────────────────────────────────
+from app.services.chatbot_service import get_chatbot
+
+# ── Calorie & nutrition calculation ───────────────────────────────────────────
+from app.services.calorie_calculator import calculate_calories, get_calorie_breakdown
+
+# ── Meal planning with AI ──────────────────────────────────────────────────────
+from app.services.meal_planner_service import get_meal_planner
+
+from app import config as _config
+
+# ── JWT secret (change in production via env var) ────────────────────────────
+_JWT_SECRET = os.getenv("JWT_SECRET", "nutriscan-dev-secret-change-in-prod")
+_JWT_ALGORITHM = "HS256"
+_TOKEN_TTL = 60 * 60 * 24 * 30  # 30 days
+
+
+def _hash_password(password: str) -> str:
+    """Simple PBKDF2-HMAC-SHA256 hash (no extra deps)."""
+    salt = os.urandom(16).hex()
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 260_000)
+    return f"{salt}${dk.hex()}"
+
+
+def _verify_password(password: str, stored: str) -> bool:
+    try:
+        salt, dk_hex = stored.split("$", 1)
+        dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 260_000)
+        return hmac.compare_digest(dk.hex(), dk_hex)
+    except Exception:
+        return False
+
+
+def _make_token(user_id: int, email: str) -> str:
+    import base64 as _b64
+    header = _b64.urlsafe_b64encode(json.dumps({"alg": _JWT_ALGORITHM, "typ": "JWT"}).encode()).decode().rstrip("=")
+    payload = _b64.urlsafe_b64encode(json.dumps({
+        "sub": user_id, "email": email,
+        "exp": int(time.time()) + _TOKEN_TTL,
+    }).encode()).decode().rstrip("=")
+    sig = hmac.new(_JWT_SECRET.encode(), f"{header}.{payload}".encode(), hashlib.sha256).hexdigest()
+    return f"{header}.{payload}.{sig}"
+
+
+def _decode_token(token: str) -> Optional[Dict]:
+    try:
+        import base64 as _b64
+        parts = token.split(".")
+        if len(parts) != 3:
+            print(f"[TOKEN] Invalid parts count: {len(parts)}")
+            return None
+        header, payload, sig = parts
+        expected_sig = hmac.new(_JWT_SECRET.encode(), f"{header}.{payload}".encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected_sig):
+            print(f"[TOKEN] ❌ Signature mismatch")
+            return None
+        pad = 4 - len(payload) % 4
+        data = json.loads(_b64.urlsafe_b64decode(payload + "=" * pad))
+        print(f"[TOKEN] Decoded data: {data}")
+        if data.get("exp", 0) < int(time.time()):
+            print(f"[TOKEN] ❌ Token expired")
+            return None
+        print(f"[TOKEN] ✅ Token valid")
+        return data
+    except Exception as e:
+        print(f"[TOKEN] ❌ Decode error: {e}")
+        return None
+
+
+def _get_current_user_id() -> Optional[int]:
+    """Extract user_id from Bearer token in Authorization header (optional)."""
+    auth = request.headers.get("Authorization", "")
+    print(f"[DEBUG] Authorization header: {auth[:50] if auth else 'MISSING'}...")
+    if not auth.startswith("Bearer "):
+        print(f"[DEBUG] No Bearer token found")
+        return None
+    token = auth[7:]
+    print(f"[DEBUG] Token: {token[:30]}...")
+    payload = _decode_token(token)
+    print(f"[DEBUG] Decoded payload: {payload}")
+    result = payload["sub"] if payload else None
+    print(f"[DEBUG] Extracted user_id: {result}")
+    return result
+
+
+def token_required(f):
+    """Decorator to require authentication token. Passes current_user dict to wrapped function."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        from app.services.history_service import _get_conn
+        
+        user_id = _get_current_user_id()
+        if not user_id:
+            return jsonify({"error": "Unauthorized: Missing or invalid token"}), 401
+        
+        # Fetch full user info
+        try:
+            with _get_conn() as conn:
+                row = conn.execute(
+                    "SELECT id, name, email, created_at FROM users WHERE id=?", (user_id,)
+                ).fetchone()
+            if not row:
+                return jsonify({"error": "User not found"}), 404
+            current_user = dict(row)
+        except Exception as e:
+            logger.error(f"Error fetching user: {e}")
+            return jsonify({"error": "Failed to fetch user"}), 500
+        
+        return f(current_user, *args, **kwargs)
+    
+    return decorated
+
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+bp = Blueprint("api", __name__)
+
+# ── Lazy-init singletons ──────────────────────────────────────────────────────
+# Fix 7: AdditivesExpert is now a module-level singleton so additives_db.json
+#         is parsed once at startup, not on every scan request.
+# Fix 8: All singletons use a dedicated getter so the global keyword is
+#         confined to one place per object — safer under gunicorn workers.
+_scoring_engine: Optional[HealthScoreEnsemble] = None
+_additives_expert_singleton: Optional[AdditivesExpert] = None
+_xai_service_singleton: Optional[XAIService] = None
+_ocr_pipeline: Optional[AdvancedOCRPipeline] = None
+_ner_service: Optional[NERService] = None
+
+
+def _get_scoring_engine() -> HealthScoreEnsemble:
+    global _scoring_engine
+    if _scoring_engine is None:
+        _scoring_engine = HealthScoreEnsemble()
+    return _scoring_engine
+
+
+def _get_additives_expert() -> AdditivesExpert:
+    """Fix 7: Return module-level singleton — avoids re-parsing JSON every request."""
+    global _additives_expert_singleton
+    if _additives_expert_singleton is None:
+        _additives_expert_singleton = AdditivesExpert()
+    return _additives_expert_singleton
+
+
+def _get_xai_service() -> XAIService:
+    """Fix 8: Centralised getter replaces scattered global assignments."""
+    global _xai_service_singleton
+    if _xai_service_singleton is None:
+        _xai_service_singleton = XAIService()
+    return _xai_service_singleton
+
+
+def _merge_rag_enrichment(response: Dict[str, Any], rag: Dict[str, Any]) -> None:
+    """
+    Merge RAG pipeline findings INTO the main response dict (in-place).
+
+    RAG NEVER overrides health_score or score_value — those come from the
+    heuristic/XGBoost + verified nutrition DB.  RAG only ADDS:
+      • allergens_detected      — new field
+      • ultra_processed_markers — new field
+      • fssai_compliance        — new field
+      • rag_warnings            — extra human-readable warnings
+      • rag_warning_details     — structured {title, explanation} list
+      • additives               — enriched with RAG explanation text where available
+      • healthy_alternative     — upgraded if RAG has a better tip
+    """
+    if not rag or rag.get("error"):
+        return
+
+    # ── New fields ────────────────────────────────────────────────────────────
+    response["allergens_detected"]      = rag.get("allergens_detected", [])
+    response["ultra_processed_markers"] = rag.get("ultra_processed_markers_found", [])
+    response["fssai_compliance"]        = rag.get("fssai_compliance", True)
+    response["fssai_compliance_msg"]    = rag.get("compliance_message", "")
+
+    # ── Extra warnings (don't duplicate existing ones) ────────────────────────
+    existing_warnings = set(response.get("warnings") or [])
+    rag_warnings = [w for w in (rag.get("warnings") or []) if w not in existing_warnings]
+    response["rag_warnings"]        = rag_warnings
+    response["rag_warning_details"] = rag.get("warning_details", [])
+
+    # ── Enrich additive entries with RAG explanation text ────────────────────
+    rag_flags_by_code: Dict[str, Dict] = {}
+    for flag in (rag.get("additive_flags") or []):
+        code = flag.get("code", "").upper().replace(" ", "")
+        if code:
+            rag_flags_by_code[code] = flag
+
+    enriched_additives = []
+    for add in (response.get("additives") or []):
+        # Extract code from "Name (INS 621)" format
+        import re as _re
+        m = _re.search(r"\(([^)]+)\)\s*$", add.get("name", ""))
+        code_key = m.group(1).upper().replace(" ", "") if m else ""
+        rag_flag = rag_flags_by_code.get(code_key)
+        if rag_flag and rag_flag.get("explanation"):
+            add = {**add, "rag_explanation": rag_flag["explanation"]}
+        enriched_additives.append(add)
+    response["additives"] = enriched_additives
+
+    # ── Upgrade healthy_alternative if RAG has a better tip ──────────────────
+    rag_tip = rag.get("healthy_alternative")
+    if rag_tip and not response.get("healthy_alternative"):
+        response["healthy_alternative"] = rag_tip
+
+    # ── Keep full RAG result for debugging / frontend expansion ──────────────
+    response["rag_analysis"] = rag
+
+
+def _get_legacy_services():
+    global _ocr_pipeline, _ner_service
+    if _ocr_pipeline is None:
+        logger.info("Initialising legacy OCR/NLP services (first call to /analyze)…")
+        _ocr_pipeline = AdvancedOCRPipeline()
+        _ner_service  = NERService()
+    return _ocr_pipeline, _get_scoring_engine(), _get_additives_expert(), _ner_service, _get_xai_service()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Utility helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _decode_base64_image(b64_string: str) -> Optional[np.ndarray]:
+    """
+    Decode a base64-encoded image string (with or without data-URI header)
+    to a BGR numpy array suitable for cv2 operations.
+
+    Returns None on any error.
+    """
+    try:
+        if "," in b64_string:
+            _, b64_string = b64_string.split(",", 1)
+        raw_bytes = base64.b64decode(b64_string)
+        arr = np.frombuffer(raw_bytes, dtype=np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        return img
+    except Exception as exc:
+        logger.warning("Image decode failed: %s", exc)
+        return None
+
+
+def _save_temp_image(b64_string: str, path: str) -> bool:
+    """Save a base64 image string to a file path. Returns True on success."""
+    try:
+        if "," in b64_string:
+            _, b64_string = b64_string.split(",", 1)
+        with open(path, "wb") as f:
+            f.write(base64.b64decode(b64_string))
+        return True
+    except Exception as exc:
+        logger.warning("Failed to save temp image: %s", exc)
+        return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Health check
+# ─────────────────────────────────────────────────────────────────────────────
+
+@bp.route("/", methods=["GET"])
+@bp.route("/api/health", methods=["GET"])
+def read_root():
+    return jsonify({"status": "ok", "message": "Food Scanner API is running!"})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PRIMARY ENDPOINT — barcode-first pipeline
+# ─────────────────────────────────────────────────────────────────────────────
+
+@bp.route("/api/scan", methods=["POST"])
+def scan():
+    """
+    Barcode-first product scan.
+
+    Request body (JSON)
+    -------------------
+    {
+        "image": "<base64-encoded image of the product>"
+    }
+
+    Response — success (HTTP 200)
+    ------------------------------
+    {
+        "gtin":               "8901234567890",
+        "product_name":       "...",
+        "brand":              "...",
+        "country":            "IN",
+        "ingredients":        ["...", ...],
+        "nutrition_per_100g": { "energy_kcal": 110, "protein_g": 1.2, ... },
+        "nutrition_per_serving": { "serving_size_g": 20, ... },
+        "source":             "cache" | "openfoodfacts"
+    }
+
+    Response — barcode not found (HTTP 422)
+    ----------------------------------------
+    { "status": "error", "message": "barcode_not_found" }
+
+    Response — product not in any DB (HTTP 200, partial)
+    -----------------------------------------------------
+    { "status": "partial", "gtin": "...", "message": "nutrition_unavailable" }
+    """
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"status": "error", "message": "request body required"}), 400
+
+    # ── Short-circuit: manual GTIN entry (no image) ───────────────────────────
+    if data.get("gtin") and not data.get("image"):
+        gtin = str(data["gtin"]).strip()
+        if not re.match(r"^\d{8,14}$", gtin):
+            return jsonify({"status": "error", "message": "invalid_gtin"}), 400
+        logger.info("POST /api/scan — manual GTIN entry: %s", gtin)
+        # jump straight to product lookup (skip image decode + barcode detection)
+    else:
+        if not data.get("image"):
+            return jsonify({"status": "error", "message": "image field is required"}), 400
+
+        # ── Step 1: Decode image ──────────────────────────────────────────────────
+        image = _decode_base64_image(data["image"])
+        if image is None:
+            return jsonify({"status": "error", "message": "invalid_image"}), 400
+
+        logger.info("POST /api/scan — image decoded (%dx%d)", image.shape[1], image.shape[0])
+
+        # ── Step 2: Barcode-only model ────────────────────────────────────────────
+        gtin = extract_barcode_from_image(image)
+
+        if not gtin:
+            logger.info("POST /api/scan — no barcode detected")
+            return jsonify({
+                "status": "error",
+                "message": "barcode_not_found",
+                "hint": "Make sure the barcode is clearly visible and well-lit."
+            }), 422
+
+        logger.info("POST /api/scan — barcode detected: %s", gtin)
+
+    # ── Step 3: Non-ML DB/API lookup ──────────────────────────────────────────
+    product = get_product_by_gtin(gtin)
+
+    if product is None:
+        logger.info("POST /api/scan — GTIN %s not found in any database", gtin)
+        # Fix 9: return 404 so the frontend can distinguish "barcode read but
+        # product unknown" from a successful scan (200). The gtin is included
+        # so the frontend can prompt the user to scan the label instead.
+        return jsonify({
+            "status": "partial",
+            "gtin": gtin,
+            "message": "nutrition_unavailable",
+            "hint": "Product barcode was read but no nutrition data was found. Please scan the ingredients label.",
+        }), 404
+
+    # ── Step 4: Run AdditivesExpert on ingredient list from DB ───────────────
+    n100 = product.get("nutrition_per_100g") or {}
+    ingredients_list = product.get("ingredients") or []
+    ingredients_text = ", ".join(ingredients_list)
+
+    # Fix 7: use singleton instead of instantiating on every request
+    additives_expert = _get_additives_expert()
+    detected_additives, additive_impact = additives_expert.analyze_text(ingredients_text)
+    coloring_agents = [a for a in detected_additives if a.get("category") == "Colour"]
+    risk_summary = additives_expert.get_risk_summary(detected_additives)
+
+    logger.info(
+        "POST /api/scan — additives: %d detected (impact=%.1f, risk=%s)",
+        len(detected_additives), additive_impact, risk_summary.get("risk_tier")
+    )
+
+    # ── Step 5: Health score using nutrition + additive impact ────────────────
+    _add_feats = getattr(additives_expert, "last_additive_features", {})
+    features = {
+        "sugar_g":               n100.get("sugars_g"),
+        "fat_g":                 n100.get("fat_g"),
+        "saturated_fat_g":       n100.get("saturated_fat_g"),
+        "carbs_g":               n100.get("carbohydrates_g"),
+        "protein_g":             n100.get("protein_g"),
+        "calories":              n100.get("energy_kcal"),
+        "fiber_g":               n100.get("fiber_g"),
+        "sodium_mg":             n100.get("sodium_mg"),
+        "additive_impact":       additive_impact,
+        "additive_count":        _add_feats.get("additive_count", len(detected_additives)),
+        "has_critical_additive": _add_feats.get("has_critical_additive", 0),
+        "nova_group":            product.get("nova_group"),
+    }
+    scoring_engine = _get_scoring_engine()
+    score_value = round(scoring_engine.calculate_raw_score(features), 1)
+
+    risk_tier = risk_summary.get("risk_tier", "SAFE")
+    if risk_tier in ("CRITICAL", "HIGH_RISK"):
+        health_score = "RED"
+    elif risk_tier == "MODERATE_RISK" and score_value >= 7.5:
+        health_score = "YELLOW"
+    else:
+        health_score = (
+            "GREEN"  if score_value >= 7.5 else
+            "YELLOW" if score_value >= 5.0 else
+            "RED"
+        )
+
+    # NutriScore hard gate — never allow GREEN if official grade is C, D or E
+    _ns_grade = scoring_engine.get_nutriscore(features).get("grade", "C")
+    if _ns_grade in ("C", "D", "E") and health_score == "GREEN":
+        health_score = "YELLOW"
+    if _ns_grade in ("D", "E") and health_score == "YELLOW":
+        health_score = "RED"
+
+    # ── Step 5a: Build flat nutrition dict the frontend expects ───────────────
+    def _fmt(val, unit="g"):
+        return f"{round(val, 1)}{unit}" if val is not None else "N/A"
+
+    flat_nutrition = {
+        "calories":   _fmt(n100.get("energy_kcal"), " kcal"),
+        "protein":    _fmt(n100.get("protein_g")),
+        "total_fat":  _fmt(n100.get("fat_g")),
+        "sugar":      _fmt(n100.get("sugars_g")),
+        "carbs":      _fmt(n100.get("carbohydrates_g")),
+        "sodium":     _fmt(n100.get("sodium_mg"), " mg"),
+        "fiber":      _fmt(n100.get("fiber_g")),
+    }
+
+    # ── Step 5b: Load user preferences and apply dietary overrides ────────────
+    user_id = _get_current_user_id()   # resolve early — needed for prefs lookup AND history save
+    prefs = {"vegan": False, "no_sugar": False, "low_sodium": False, "gluten_free": False}
+    preference_warnings = []
+    try:
+        from app.services.history_service import _get_conn as _hconn
+        with _hconn() as _pc:
+            _prow = _pc.execute(
+                "SELECT vegan, no_sugar, low_sodium, gluten_free FROM preferences WHERE user_id=?",
+                (user_id or 0,)
+            ).fetchone()
+            if _prow:
+                prefs = {
+                    "vegan":       bool(_prow[0]),
+                    "no_sugar":    bool(_prow[1]),
+                    "low_sodium":  bool(_prow[2]),
+                    "gluten_free": bool(_prow[3]),
+                }
+    except Exception as _pe:
+        logger.warning("Preferences load failed (non-fatal): %s", _pe)
+
+    # Check each preference against the product's data
+    ing_lower = ingredients_text.lower()
+    if prefs["vegan"]:
+        animal_keywords = ["milk", "cheese", "paneer", "butter", "ghee", "cream",
+                           "egg", "meat", "chicken", "fish", "gelatin", "honey",
+                           "whey", "lactose", "casein", "lard"]
+        violations = [kw for kw in animal_keywords if kw in ing_lower]
+        if violations:
+            preference_warnings.append(
+                f"⚠️ Not vegan: contains {', '.join(violations[:3])}"
+            )
+            health_score = "RED"  # hard violation
+
+    if prefs["no_sugar"]:
+        sugar_g = n100.get("sugars_g") or 0
+        sugar_keywords = ["sugar", "sucrose", "glucose syrup", "corn syrup", "dextrose",
+                          "fructose", "maltose", "molasses", "cane juice"]
+        has_sugar_ing = any(kw in ing_lower for kw in sugar_keywords)
+        if sugar_g > 5 or has_sugar_ing:
+            preference_warnings.append(
+                f"⚠️ High sugar: {sugar_g}g per 100g — not suitable for no-sugar diet"
+            )
+            if health_score == "GREEN":
+                health_score = "YELLOW"
+
+    if prefs["low_sodium"]:
+        sodium_mg = n100.get("sodium_mg") or 0
+        if sodium_mg > 400:
+            preference_warnings.append(
+                f"⚠️ High sodium: {sodium_mg}mg per 100g — exceeds low-sodium limit"
+            )
+            if health_score == "GREEN":
+                health_score = "YELLOW"
+            if sodium_mg > 800:
+                health_score = "RED"
+
+    if prefs["gluten_free"]:
+        gluten_keywords = ["wheat", "barley", "rye", "oat", "gluten", "wheat flour",
+                           "maida", "semolina", "atta"]
+        violations = [kw for kw in gluten_keywords if kw in ing_lower]
+        if violations:
+            preference_warnings.append(
+                f"⚠️ Contains gluten: {', '.join(violations[:3])}"
+            )
+            health_score = "RED"  # hard violation for celiac
+
+    # Build personalised healthy_alt
+    if preference_warnings:
+        healthy_alt = " | ".join(preference_warnings)
+    elif score_value < 5.0:
+        healthy_alt = "Try fresh fruits or homemade alternatives to reduce additives and sugar."
+    else:
+        healthy_alt = None
+
+    # ── Step 5c: XAI Explanations ───────────────────────────────────────────
+    xai_explanations = _get_xai_service().explain_score(
+        None, features, ["sugar_g", "additive_impact", "calories", "protein_g"]
+    )
+    nutriscore_info = scoring_engine.get_nutriscore(features)
+
+    # ── Step 5d: RAG enrichment (barcode path) ────────────────────────────────
+    # Uses pre-parsed ingredients from the DB — never touches health_score.
+    # Adds: allergens, ultra-processed markers, FSSAI compliance, richer additive text.
+    _rag_barcode_result: Dict[str, Any] = {}
+    if getattr(_config, "RAG_BARCODE_ENABLED", True):
+        try:
+            from rag_pipeline import analyze_label_text as _rag_analyze
+            _rag_barcode_result = _rag_analyze(
+                ingredients_text=ingredients_text,
+                pre_parsed_nutrition={
+                    "calories":        n100.get("energy_kcal"),
+                    "sugars_g":        n100.get("sugars_g"),
+                    "fat_g":           n100.get("fat_g"),
+                    "saturated_fat_g": n100.get("saturated_fat_g"),
+                    "fiber_g":         n100.get("fiber_g"),
+                    "protein_g":       n100.get("protein_g"),
+                    "sodium_mg":       n100.get("sodium_mg"),
+                    "trans_fat_g":     n100.get("trans_fat_g"),
+                },
+                pre_parsed_ingredients=ingredients_list,
+            )
+            logger.info(
+                "RAG barcode enrichment — allergens=%s | UP_markers=%d | compliant=%s",
+                _rag_barcode_result.get("allergens_detected", []),
+                len(_rag_barcode_result.get("ultra_processed_markers_found", [])),
+                _rag_barcode_result.get("fssai_compliance", True),
+            )
+        except Exception as _rag_exc:
+            logger.warning("RAG barcode enrichment skipped (non-fatal): %s", _rag_exc)
+
+    # ── Step 6: Return enriched response ─────────────────────────────────────
+    response_body: Dict[str, Any] = {
+        **product,
+        "health_score":          health_score,
+        "score_value":           score_value,
+        "nutrition":             flat_nutrition,
+        "additives":             detected_additives,
+        "coloring_agents":       coloring_agents,
+        "risk_summary":          risk_summary,
+        "nutriscore":            nutriscore_info,
+        "healthy_alternative":   healthy_alt,
+        "preference_warnings":   preference_warnings,
+        "active_preferences":    prefs,
+        "scan_mode":             "barcode",
+        "xai":                   {"shap_impacts": xai_explanations},
+    }
+
+    # Merge RAG enrichment (allergens, ultra-processed markers, FSSAI compliance,
+    # richer additive explanations) — never overrides score
+    if _rag_barcode_result:
+        _merge_rag_enrichment(response_body, _rag_barcode_result)
+
+    # ── Step 7: Auto-save scan to history ────────────────────────────────────
+    try:
+        save_scan(
+            product_name=product.get("product_name"),
+            brand=product.get("brand"),
+            gtin=gtin,
+            health_score=health_score,
+            score_value=score_value,
+            nutrition=n100,
+            ingredients=ingredients_list,
+            flagged_additives=detected_additives,
+            healthy_alternative=healthy_alt,
+            source=product.get("source"),
+            scan_mode="barcode",
+            user_id=user_id,
+        )
+        logger.info(
+            "Scan saved — user=%s | %s | %s %.1f | %d additives",
+            user_id, gtin, health_score, score_value, len(detected_additives)
+        )
+    except Exception as _hist_exc:
+        logger.warning("History save failed (non-fatal): %s", _hist_exc)
+
+    logger.info(
+        "POST /api/scan — GTIN %s | source=%s | %s %.1f | %d additives",
+        gtin, product.get("source"), health_score, score_value, len(detected_additives)
+    )
+    return jsonify(response_body), 200
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LEGACY ENDPOINT — OCR-based pipeline (research / debugging only)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@bp.route("/analyze", methods=["POST"])
+def analyze():
+    """
+    Legacy OCR + NLP analysis pipeline.
+
+    WARNING: This endpoint is NOT part of the primary barcode-first flow.
+    It is kept for research and debugging purposes only.
+    The frontend should use POST /api/scan instead.
+
+    Request body (JSON)
+    -------------------
+    { "ingredients_image": "<base64>" }
+    """
+    logger.info("POST /analyze — legacy OCR pipeline (research mode)")
+    ocr_pipeline, scoring_engine, additives_expert, ner_service, xai_service = _get_legacy_services()
+
+    data = request.get_json(silent=True)
+    if not data or not data.get("ingredients_image"):
+        return jsonify({"error": "ingredients_image is required"}), 400
+
+    temp_id = str(uuid.uuid4())
+    img_path = f"target_{temp_id}.jpg"
+
+    try:
+        if not _save_temp_image(data["ingredients_image"], img_path):
+            return jsonify({"error": "invalid image data"}), 400
+
+        # OCR
+        ocr_result = ocr_pipeline.process_label(img_path)
+        raw_text = ocr_result.get("raw_text", "").strip()
+        logger.info("OCR raw text (%d chars): %s", len(raw_text), raw_text[:200])
+
+        # Optional second nutrition-panel image
+        nutrition_image_b64 = data.get("nutrition_image")
+        if nutrition_image_b64 and nutrition_image_b64 != data.get("ingredients_image"):
+            nutr_path = f"target_nutr_{temp_id}.jpg"
+            try:
+                if _save_temp_image(nutrition_image_b64, nutr_path):
+                    nutr_result = ocr_pipeline.process_label(nutr_path)
+                    nutr_text = nutr_result.get("raw_text", "").strip()
+                    if nutr_text:
+                        raw_text = raw_text + " " + nutr_text
+                        logger.info("Nutrition panel OCR appended (%d chars)", len(nutr_text))
+            except Exception as ne:
+                logger.warning("Nutrition panel OCR failed: %s", ne)
+            finally:
+                if os.path.exists(nutr_path):
+                    os.remove(nutr_path)
+
+        if not raw_text:
+            return jsonify({"error": "Could not read label text. Try a clearer, well-lit photo."}), 422
+
+        # NER + Additives + Scoring + XAI
+        features = ner_service.extract(raw_text)
+        detected_additives, additive_impact = additives_expert.analyze_text(raw_text)
+        risk_summary = additives_expert.get_risk_summary(detected_additives)
+        features["additive_impact"] = additive_impact
+        coloring_agents = [a for a in detected_additives if a.get("category") == "Colour"]
+        health_score = scoring_engine.calculate_raw_score(features)
+        xai_explanations = xai_service.explain_score(
+            None, features, ["sugar_g", "additive_impact", "calories", "protein_g"]
+        )
+
+        risk_tier = risk_summary.get("risk_tier", "SAFE")
+        health_color = (
+            "RED"    if risk_tier in ("CRITICAL", "HIGH_RISK") else
+            "YELLOW" if risk_tier in ("MODERATE_RISK", "LOW_RISK") else
+            "GREEN"
+        )
+
+        def fmt(val, unit="g"):
+            return f"{val}{unit}" if val is not None else "N/A"
+
+        result = {
+            "product_name": "Product Scan Result (OCR)",
+            "health_score": health_color,
+            "score_value": round(health_score, 1),
+            "raw_ocr_text": raw_text[:500],
+            "additives": detected_additives,
+            "coloring_agents": coloring_agents,
+            "nutrition": {
+                "calories":   fmt(features.get("calories"), " kcal"),
+                "protein":    fmt(features.get("protein_g")),
+                "total_fat":  fmt(features.get("fat_g")),
+                "carbs":      fmt(features.get("carbs_g")),
+                "sugar":      fmt(features.get("sugar_g")),
+            },
+            "xai": {"shap_impacts": xai_explanations},
+            "healthy_alternative": (
+                "Fresh fruits or homemade organic snacks." if health_score < 6 else None
+            ),
+        }
+
+        # ── RAG side pipeline (non-intrusive, optional) ──────────────────
+        if getattr(_config, "RAG_ENABLED", False):  # always False for barcode path
+            try:
+                from rag_pipeline import analyze_label_text as _rag_analyze
+                _rag_result = _rag_analyze(
+                    nutrition_text=raw_text,
+                    ingredients_text=raw_text,
+                )
+                result["rag_analysis"] = _rag_result
+                logger.info(
+                    "RAG analysis (legacy /analyze) complete — score=%.1f (%s)",
+                    _rag_result.get("score", 0), _rag_result.get("score_grade", "?")
+                )
+            except Exception as _rag_exc:
+                logger.warning("RAG pipeline skipped (non-fatal): %s", _rag_exc)
+
+        return jsonify(result)
+
+    except Exception as exc:
+        logger.error("Legacy pipeline error: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 500
+    finally:
+        if os.path.exists(img_path):
+            os.remove(img_path)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Other endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+@bp.route("/search", methods=["GET"])
+def search():
+    q = request.args.get("q", "").strip()
+    logger.info("GET /search — query: %s", q)
+    return jsonify({"products": [{"name": f"Mock result for {q}", "health_score": "YELLOW"}]})
+
+
+@bp.route("/history", methods=["GET"])
+def history():
+    """Return real scan history from SQLite."""
+    limit = min(int(request.args.get("limit", 50)), 200)
+    user_id = _get_current_user_id()
+    return jsonify(get_history(limit=limit, user_id=user_id))
+
+
+@bp.route("/history/<int:scan_id>", methods=["DELETE"])
+def delete_history_item(scan_id: int):
+    """Delete a specific scan from history (only the owner can delete)."""
+    user_id = _get_current_user_id()
+    removed = delete_scan(scan_id=scan_id, user_id=user_id)
+    if removed:
+        return jsonify({"status": "ok", "deleted": scan_id}), 200
+    return jsonify({"status": "error", "message": "not found or not authorized"}), 404
+
+
+@bp.route("/analytics", methods=["GET"])
+def analytics():
+    """Return real analytics computed from scan history."""
+    user_id = _get_current_user_id()
+    return jsonify(get_analytics(user_id=user_id))
+
+
+@bp.route("/api/translate", methods=["POST"])
+def proxy_translate():
+    """Proxy translation using deep-translator (Google Translate free)."""
+    data = request.get_json(silent=True)
+    if not data or not isinstance(data.get("texts"), list) or not data.get("target"):
+        return jsonify({"error": "Invalid request. Provide 'texts' list and 'target' language."}), 400
+    
+    target_lang = data["target"]
+    if target_lang == "en":
+        return jsonify({"translations": data["texts"]})
+        
+    try:
+        from deep_translator import GoogleTranslator
+        translator = GoogleTranslator(source='en', target=target_lang)
+        translations = translator.translate_batch(data["texts"])
+        return jsonify({"translations": translations})
+    except Exception as e:
+        logger.error("Translation error: %s", e)
+        # Fallback to original text on error
+        return jsonify({"translations": data["texts"]})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INDIAN LABEL SIDE-PIPELINE — POST /api/scan-label
+# Does NOT touch the barcode-first /api/scan pipeline.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@bp.route("/api/scan-label", methods=["POST"])
+def scan_label():
+    """
+    Indian food label side-pipeline.
+
+    Request body (JSON)
+    -------------------
+    {
+      "image"        : "<base64 of ingredients/nutrition table photo>",
+      "product_name" : "Maggi 2-Minute Noodles"   # required: entered by user
+    }
+    """
+    import sys as _sys
+    import os as _os
+    # Make sure src/ is importable
+    _backend_root = _os.path.dirname(_os.path.dirname(__file__))
+    if _backend_root not in _sys.path:
+        _sys.path.insert(0, _backend_root)
+
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "No JSON body provided"}), 400
+
+    product_name = (data.get("product_name") or "").strip()
+    if not product_name:
+        return jsonify({"error": "product_name is required"}), 400
+
+    image_b64  = data.get("image") or data.get("ingredients_image")
+    img_path   = None
+    raw_ocr_text = ""
+
+    try:
+        # ── Step 1: OCR the label image (if provided) ───────────────────────
+        structured_nutrition_from_ocr = {}
+        ingredients_text_from_ocr = ""
+        ocr_confidence   = 0.0
+        field_confidence = {}
+        if image_b64:
+            temp_id  = str(uuid.uuid4())
+            img_path = f"label_{temp_id}.jpg"
+            try:
+                if _save_temp_image(image_b64, img_path):
+                    ocr_pipeline, *_ = _get_legacy_services()
+                    ocr_result   = ocr_pipeline.process_label(img_path)
+                    raw_ocr_text = ocr_result.get("raw_text", "")
+                    structured_nutrition_from_ocr = ocr_result.get("structured_nutrition") or {}
+                    ingredients_text_from_ocr = ocr_result.get("ingredients_text") or ""
+                    ocr_confidence        = ocr_result.get("ocr_confidence", 0.0)
+                    field_confidence      = ocr_result.get("field_confidence", {})
+                    logger.info(
+                        "scan-label: OCR extracted %d chars | structured keys=%s",
+                        len(raw_ocr_text), list(structured_nutrition_from_ocr.keys())
+                    )
+            except MemoryError:
+                logger.warning("scan-label: OCR MemoryError, skipping OCR")
+                raw_ocr_text = ""
+            except Exception as exc:
+                logger.warning("scan-label: OCR failed: %s", exc)
+                raw_ocr_text = ""
+
+        # ── Step 1b: Second OCR pass for nutrition table image (if provided) ─
+        nutrition_image_b64 = data.get("nutrition_image")
+        if nutrition_image_b64 and nutrition_image_b64 != image_b64:
+            nutr_temp_id  = str(uuid.uuid4())
+            nutr_img_path = f"label_nutr_{nutr_temp_id}.jpg"
+            try:
+                if _save_temp_image(nutrition_image_b64, nutr_img_path):
+                    ocr_pipeline, *_ = _get_legacy_services()
+                    nutr_ocr_result = ocr_pipeline.process_label(nutr_img_path)
+                    nutr_structured = nutr_ocr_result.get("structured_nutrition") or {}
+                    nutr_raw        = nutr_ocr_result.get("raw_text", "")
+                    # Merge: nutrition image values take priority for numeric fields
+                    for k, v in nutr_structured.items():
+                        if v is not None:
+                            structured_nutrition_from_ocr[k] = v
+                    if nutr_raw:
+                        raw_ocr_text = (raw_ocr_text + " " + nutr_raw).strip()
+                    logger.info(
+                        "scan-label: nutrition image OCR merged — keys=%s",
+                        list(nutr_structured.keys())
+                    )
+            except Exception as exc:
+                logger.warning("scan-label: nutrition image OCR failed (non-fatal): %s", exc)
+            finally:
+                if os.path.exists(nutr_img_path):
+                    os.remove(nutr_img_path)
+
+        # ── Step 2: Indian product lookup (FSSAI, OFF India, OFF World, OCR) ─
+        try:
+            from src.services.indian_label_service import lookup_indian_product
+        except ImportError:
+            # Fallback: use OCR-only extraction without external API lookups
+            lookup_indian_product = None
+
+        if lookup_indian_product:
+            product = lookup_indian_product(product_name, raw_ocr_text)
+        else:
+            # Pure OCR fallback
+            product = _ocr_only_extract(product_name, raw_ocr_text)
+
+        # ── Step 3: Enrich with additives & health score ──────────────────
+        nutr = product.get("nutrition") or {}
+        ingredients_text = ", ".join(product.get("ingredients", []))
+        # Prefer OCR-extracted ingredients text when the lookup returned nothing
+        if not ingredients_text:
+            ingredients_text = ingredients_text_from_ocr or raw_ocr_text
+
+        # Fix: use singleton instead of instantiating on every request
+        additives_expert = _get_additives_expert()
+        detected_additives, additive_impact = additives_expert.analyze_text(ingredients_text)
+        coloring_agents = [a for a in detected_additives if a.get("category") == "Colour"]
+
+        # Prefer structured_nutrition from OCR pipeline over regex-extracted nutr dict
+        # structured_nutrition_from_ocr uses canonical keys (energy_kcal, fat_g, etc.)
+        # nutr uses short keys (calories, fat, sugar, etc.) — merge both
+        def _pick(ocr_key, nutr_key, nutr_key2=None):
+            v = structured_nutrition_from_ocr.get(ocr_key)
+            if v is not None:
+                return float(v)
+            v = nutr.get(nutr_key)
+            if v is not None:
+                return float(v)
+            if nutr_key2:
+                v = nutr.get(nutr_key2)
+                if v is not None:
+                    return float(v)
+            return None
+
+        _add_feats_label = getattr(additives_expert, "last_additive_features", {})
+        features = {
+            "calories":              _pick("energy_kcal",    "calories"),
+            "sugar_g":               _pick("sugar_g",        "sugar"),
+            "fat_g":                 _pick("fat_g",          "fat"),
+            "saturated_fat_g":       _pick("saturated_fat_g","saturated_fat"),
+            "carbs_g":               _pick("carbohydrates_g","carbs"),
+            "protein_g":             _pick("protein_g",      "protein"),
+            "fiber_g":               _pick("fiber_g",        "fiber"),
+            "sodium_mg":             _pick("sodium_mg",      "sodium"),
+            "additive_impact":       additive_impact,
+            "additive_count":        _add_feats_label.get("additive_count", len(detected_additives)),
+            "has_critical_additive": _add_feats_label.get("has_critical_additive", 0),
+            "nova_group":            product.get("nova_group"),
+        }
+        scoring_engine = _get_scoring_engine()
+        health_score   = scoring_engine.calculate_raw_score(features)
+        nutriscore_info = scoring_engine.get_nutriscore(features)
+        risk_summary   = additives_expert.get_risk_summary(detected_additives)
+        risk_tier      = risk_summary.get("risk_tier", "SAFE")
+
+        if risk_tier in ("CRITICAL", "HIGH_RISK"):
+            health_color = "RED"
+        elif risk_tier == "MODERATE_RISK":
+            health_color = "YELLOW"
+        else:
+            health_color = "GREEN" if health_score >= 6.5 else ("YELLOW" if health_score >= 4.0 else "RED")
+
+        # ── Step 4: Flat nutrition dict for frontend ────────────────────────
+        def _fmt(val, unit="g"):
+            try:
+                return f"{round(float(val), 1)}{unit}" if val is not None else "N/A"
+            except Exception:
+                return "N/A"
+
+        # Use merged features dict so OCR-extracted values show up even when
+        # the product lookup returned nothing
+        flat_nutrition = {
+            "calories":  _fmt(features.get("calories"),  " kcal"),
+            "protein":   _fmt(features.get("protein_g")),
+            "total_fat": _fmt(features.get("fat_g")),
+            "carbs":     _fmt(features.get("carbs_g")),
+            "sugar":     _fmt(features.get("sugar_g")),
+            "fiber":     _fmt(features.get("fiber_g")),
+            "sodium":    _fmt(features.get("sodium_mg"), " mg"),
+        }
+
+        healthy_alt = (
+            "Try fresh homemade alternatives to reduce additives and sugar."
+            if health_score < 5.0 else None
+        )
+
+        # ── Step 3b: Apply user dietary preferences (same logic as barcode path) ─
+        user_id = _get_current_user_id()
+        prefs = {"vegan": False, "no_sugar": False, "low_sodium": False, "gluten_free": False}
+        preference_warnings = []
+        try:
+            from app.services.history_service import _get_conn as _hconn
+            with _hconn() as _pc:
+                _prow = _pc.execute(
+                    "SELECT vegan, no_sugar, low_sodium, gluten_free FROM preferences WHERE user_id=?",
+                    (user_id or 0,)
+                ).fetchone()
+                if _prow:
+                    prefs = {
+                        "vegan":       bool(_prow[0]),
+                        "no_sugar":    bool(_prow[1]),
+                        "low_sodium":  bool(_prow[2]),
+                        "gluten_free": bool(_prow[3]),
+                    }
+        except Exception as _pe:
+            logger.warning("scan-label: preferences load failed (non-fatal): %s", _pe)
+
+        ing_lower = ingredients_text.lower()
+        if prefs["vegan"]:
+            animal_kw = ["milk", "cheese", "paneer", "butter", "ghee", "cream",
+                         "egg", "meat", "chicken", "fish", "gelatin", "honey",
+                         "whey", "lactose", "casein", "lard"]
+            violations = [kw for kw in animal_kw if kw in ing_lower]
+            if violations:
+                preference_warnings.append(f"⚠️ Not vegan: contains {', '.join(violations[:3])}")
+                health_color = "RED"
+
+        if prefs["no_sugar"]:
+            sugar_val = features.get("sugar_g") or 0
+            sugar_kw = ["sugar", "sucrose", "glucose syrup", "corn syrup", "dextrose",
+                        "fructose", "maltose", "molasses", "cane juice"]
+            if sugar_val > 5 or any(kw in ing_lower for kw in sugar_kw):
+                preference_warnings.append(f"⚠️ High sugar: {sugar_val}g per 100g")
+                if health_color == "GREEN":
+                    health_color = "YELLOW"
+
+        if prefs["low_sodium"]:
+            sodium_val = features.get("sodium_mg") or 0
+            if sodium_val > 400:
+                preference_warnings.append(f"⚠️ High sodium: {sodium_val}mg per 100g")
+                if health_color == "GREEN":
+                    health_color = "YELLOW"
+                if sodium_val > 800:
+                    health_color = "RED"
+
+        if prefs["gluten_free"]:
+            gluten_kw = ["wheat", "barley", "rye", "oat", "gluten",
+                         "wheat flour", "maida", "semolina", "atta"]
+            violations = [kw for kw in gluten_kw if kw in ing_lower]
+            if violations:
+                preference_warnings.append(f"⚠️ Contains gluten: {', '.join(violations[:3])}")
+                health_color = "RED"
+
+        if preference_warnings:
+            healthy_alt = " | ".join(preference_warnings)
+
+        # data_quality flag: "low" when OCR confidence < 0.6 or < 3 fields extracted
+        extracted_field_count = len([v for v in structured_nutrition_from_ocr.values() if v is not None])
+        data_quality = "low" if (ocr_confidence < 0.6 or extracted_field_count < 3) else "ok"
+
+        response_body: Dict[str, Any] = {
+            **product,
+            "health_score":        health_color,
+            "score_value":         round(health_score, 1),
+            "nutrition":           flat_nutrition,
+            "additives":           detected_additives,
+            "coloring_agents":     coloring_agents,
+            "risk_summary":        risk_summary,
+            "nutriscore":          nutriscore_info,
+            "xai":                 {"shap_impacts": _get_xai_service().explain_score(None, features, [])},
+            "warnings":            product.get("warnings", []),
+            "healthy_alternative": healthy_alt,
+            "preference_warnings": preference_warnings,
+            "active_preferences":  prefs,
+            "scan_mode":           "label",
+            "ocr_confidence":      ocr_confidence,
+            "field_confidence":    field_confidence,
+            "data_quality":        data_quality,
+        }
+
+        # ── RAG enrichment (label scan path only, never barcode path) ──────
+        if getattr(_config, "RAG_LABEL_ENABLED", True):
+            try:
+                from rag_pipeline import analyze_label_text as _rag_analyze
+                _rag_result = _rag_analyze(
+                    nutrition_text=raw_ocr_text,
+                    ingredients_text=ingredients_text,
+                )
+                _merge_rag_enrichment(response_body, _rag_result)
+                logger.info("RAG label enrichment — score=%.1f (%s) | allergens=%s | UP=%d",
+                    _rag_result.get("score", 0), _rag_result.get("score_grade", "?"),
+                    _rag_result.get("allergens_detected", []),
+                    len(_rag_result.get("ultra_processed_markers_found", [])))
+            except Exception as _rag_exc:
+                logger.warning("RAG pipeline skipped (non-fatal): %s", _rag_exc)
+
+        # ── Step 5: Auto-save to history ──────────────────────────────────
+        try:
+            # user_id already resolved in preferences block above
+            save_scan(
+                product_name=product.get("product_name") or product_name,
+                brand=product.get("brand"),
+                health_score=health_color,
+                score_value=round(health_score, 1),
+                nutrition=features,
+                ingredients=product.get("ingredients", []),
+                flagged_additives=detected_additives,
+                healthy_alternative=healthy_alt,
+                source=product.get("source", "ocr_extracted"),
+                scan_mode="label",
+                user_id=user_id,
+            )
+            logger.info("scan-label: saved to history (user_id=%s)", user_id)
+        except Exception as _he:
+            logger.warning("scan-label: history save failed (non-fatal): %s", _he)
+
+        logger.info(
+            "scan-label: '%s' scored %s (%.1f) via %s",
+            product_name, health_color, health_score, product.get("source")
+        )
+        return jsonify(response_body), 200
+
+    except MemoryError:
+        return jsonify({"error": "Server out of memory. Please try a smaller image."}), 500
+    except Exception as exc:
+        logger.error("scan-label error: %s", exc, exc_info=True)
+        return jsonify({"error": "Unexpected error during label analysis.", "detail": str(exc)}), 500
+    finally:
+        if img_path and _os.path.exists(img_path):
+            _os.remove(img_path)
+
+
+def _ocr_only_extract(product_name: str, raw_text: str) -> dict:
+    """Pure regex-based OCR extraction fallback (no external service needed)."""
+    import re
+    text_lower = raw_text.lower()
+
+    def _find(patterns):
+        for pat in patterns:
+            m = re.search(pat, text_lower)
+            if m:
+                try:
+                    return float(m.group(1))
+                except Exception:
+                    pass
+        return None
+
+    calories = _find([r"energy[^\d]*(\d+(?:\.\d+)?)\s*k?cal", r"calories?[^\d]*(\d+(?:\.\d+)?)", r"(\d+(?:\.\d+)?)\s*k?cal"])
+    protein  = _find([r"protein[^\d]*(\d+(?:\.\d+)?)\s*g"])
+    fat      = _find([r"total\s+fat[^\d]*(\d+(?:\.\d+)?)\s*g", r"fat[^\d]*(\d+(?:\.\d+)?)\s*g"])
+    carbs    = _find([r"total\s+carbo[^\d]*(\d+(?:\.\d+)?)\s*g", r"carbohydrate[^\d]*(\d+(?:\.\d+)?)\s*g", r"carbs?[^\d]*(\d+(?:\.\d+)?)\s*g"])
+    sugar    = _find([r"sugar[^\d]*(\d+(?:\.\d+)?)\s*g"])
+    sodium   = _find([r"sodium[^\d]*(\d+(?:\.\d+)?)\s*m?g", r"salt[^\d]*(\d+(?:\.\d+)?)\s*g"])
+    fiber    = _find([r"(?:dietary\s+)?fi(?:b|e)r(?:e)?[^\d]*(\d+(?:\.\d+)?)\s*g"])
+
+    ing_match = re.search(r"ingredients?\s*:?\s*([^.]{10,400})", raw_text, re.IGNORECASE | re.DOTALL)
+    ingredients = []
+    if ing_match:
+        parts = re.split(r"[,;\n]+", ing_match.group(1))
+        ingredients = [p.strip() for p in parts if len(p.strip()) > 1][:30]
+
+    warnings = []
+    if sugar and sugar > 20:    warnings.append("High Sugar Content")
+    if sodium and sodium > 600: warnings.append("High Sodium")
+    if fat and fat > 20:        warnings.append("High Saturated Fat")
+    if re.search(r"\bins\s*\d{3,}", text_lower):      warnings.append("Contains INS Additives")
+    if re.search(r"colour|color|tartrazine", text_lower): warnings.append("Contains Artificial Colors")
+    if re.search(r"preservative|sodium benzoate", text_lower): warnings.append("Contains Preservatives")
+    if re.search(r"msg|monosodium glutamate", text_lower):     warnings.append("Contains MSG")
+
+    return {
+        "product_name":  product_name,
+        "brand":         "Unknown Brand",
+        "source":        "ocr_extracted",
+        "ingredients":   ingredients,
+        "nutrition":     {"calories": calories, "protein": protein, "fat": fat, "carbs": carbs, "sugar": sugar, "sodium": sodium, "fiber": fiber},
+        "warnings":      warnings,
+        "raw_ocr_text":  raw_text[:800],
+        "data_quality":  "ocr_extracted",
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AUTH ENDPOINTS
+# ─────────────────────────────────────────────────────────────────────────────
+
+@bp.route("/auth/register", methods=["POST"])
+def auth_register():
+    """Register a new user. Body: {name, email, password}"""
+    from app.services.history_service import _get_conn
+    data = request.get_json(silent=True) or {}
+    name     = (data.get("name")     or "").strip()
+    email    = (data.get("email")    or "").strip().lower()
+    password = (data.get("password") or "").strip()
+
+    if not name or not email or not password:
+        return jsonify({"error": "name, email, and password are required"}), 400
+    if len(password) < 6:
+        return jsonify({"error": "Password must be at least 6 characters"}), 400
+    if "@" not in email:
+        return jsonify({"error": "Invalid email address"}), 400
+
+    try:
+        hashed = _hash_password(password)
+        with _get_conn() as conn:
+            cur = conn.execute(
+                "INSERT INTO users (name, email, password) VALUES (?,?,?)",
+                (name, email, hashed)
+            )
+            conn.commit()
+            user_id = cur.lastrowid
+        token = _make_token(user_id, email)
+        # Check if user has completed profile
+        profile_exists = False
+        with _get_conn() as conn:
+            profile = conn.execute("SELECT id FROM profiles WHERE user_id=?", (user_id,)).fetchone()
+            profile_exists = profile is not None
+        return jsonify({"token": token, "user": {"id": user_id, "name": name, "email": email, "profile_complete": profile_exists}}), 201
+    except Exception as exc:
+        if "UNIQUE" in str(exc):
+            return jsonify({"error": "Email already registered"}), 409
+        logger.error("Register error: %s", exc)
+        return jsonify({"error": "Registration failed"}), 500
+
+
+@bp.route("/auth/login", methods=["POST"])
+def auth_login():
+    """Login. Body: {email, password}"""
+    from app.services.history_service import _get_conn
+    data = request.get_json(silent=True) or {}
+    email    = (data.get("email")    or "").strip().lower()
+    password = (data.get("password") or "").strip()
+
+    if not email or not password:
+        return jsonify({"error": "email and password are required"}), 400
+
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, name, email, password FROM users WHERE email=?", (email,)
+        ).fetchone()
+
+    if not row or not _verify_password(password, row["password"]):
+        return jsonify({"error": "Invalid email or password"}), 401
+
+    token = _make_token(row["id"], row["email"])
+    # Check if user has completed profile
+    profile_exists = False
+    with _get_conn() as conn:
+        profile = conn.execute("SELECT id FROM profiles WHERE user_id=?", (row["id"],)).fetchone()
+        profile_exists = profile is not None
+    return jsonify({
+        "token": token,
+        "user": {"id": row["id"], "name": row["name"], "email": row["email"], "profile_complete": profile_exists}
+    })
+
+
+@bp.route("/auth/me", methods=["GET"])
+def auth_me():
+    """Return current user info from token."""
+    from app.services.history_service import _get_conn
+    user_id = _get_current_user_id()
+    if not user_id:
+        return jsonify({"error": "Not authenticated"}), 401
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, name, email, created_at FROM users WHERE id=?", (user_id,)
+        ).fetchone()
+    if not row:
+        return jsonify({"error": "User not found"}), 404
+    return jsonify(dict(row))
+
+
+@bp.route("/api/user-with-profile", methods=["GET"])
+def user_with_profile():
+    """
+    Fetch user + profile data using foreign key relationship.
+    Returns complete user info with their profile data (if exists).
+    
+    Response (HTTP 200):
+    {
+        "user": {id, name, email, created_at},
+        "profile": {age, gender, weight, diet_type, ...} or null,
+        "profile_complete": true/false
+    }
+    """
+    from app.services.history_service import _get_conn
+    user_id = _get_current_user_id()
+    if not user_id:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    with _get_conn() as conn:
+        # Get user info
+        user = conn.execute(
+            "SELECT id, name, email, created_at FROM users WHERE id=?", (user_id,)
+        ).fetchone()
+        
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        
+        # Get profile using foreign key
+        profile = conn.execute(
+            "SELECT * FROM profiles WHERE user_id=?", (user_id,)
+        ).fetchone()
+    
+    # Build response
+    result = {
+        "user": dict(user),
+        "profile": dict(profile) if profile else None,
+        "profile_complete": profile is not None
+    }
+    
+    return jsonify(result), 200
+
+
+@bp.route("/api/profile", methods=["GET", "POST"])
+def user_profile():
+    """
+    Store and retrieve user profile data from onboarding form.
+    
+    POST: Save user profile (age, weight, diet type, health goal, etc.)
+    GET: Retrieve user profile data
+    
+    Request body (POST) — JSON
+    ──────────────────────────
+    {
+        "age": 25,
+        "gender": "Male",
+        "weight": 70,
+        "height": 175,
+        "diet_type": "vegetarian",
+        "state": "Maharashtra",
+        "cuisine": "North Indian",
+        "health_goal": "Weight Loss",
+        "weekly_budget": 2000,
+        "activity_level": "Moderate"
+    }
+    
+    Response (POST) — HTTP 200
+    ──────────────────────────
+    {
+        "status": "ok",
+        "user_id": 1,
+        "profile": {...profile data...},
+        "profile_complete": true
+    }
+    
+    Response (GET) — HTTP 200
+    ──────────────────────────
+    {
+        "user_id": 1,
+        "age": 25,
+        "gender": "Male",
+        ...rest of profile fields...
+    }
+    """
+    from app.services.history_service import _get_conn
+    
+    print(f"\n[PROFILE] Request: {request.method} /api/profile")
+    user_id = _get_current_user_id()
+    print(f"[PROFILE] Extracted user_id: {user_id}")
+    if not user_id:
+        print(f"[PROFILE] ❌ Not authenticated!")
+        return jsonify({"error": "Not authenticated. Please login first."}), 401
+
+    with _get_conn() as conn:
+        # Create profiles table if it doesn't exist
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS profiles (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER UNIQUE NOT NULL,
+                age INTEGER,
+                gender TEXT,
+                weight REAL,
+                height REAL,
+                diet_type TEXT,
+                state TEXT,
+                cuisine TEXT,
+                health_goal TEXT,
+                weekly_budget INTEGER,
+                activity_level TEXT,
+                bmr REAL DEFAULT NULL,
+                tdee REAL DEFAULT NULL,
+                daily_calories REAL DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+        """)
+        conn.commit()
+
+        if request.method == "POST":
+            data = request.get_json(silent=True) or {}
+            
+            # Validate required fields
+            required_fields = ["age", "gender", "weight", "height", "diet_type", 
+                             "state", "cuisine", "health_goal", "weekly_budget", "activity_level"]
+            missing = [f for f in required_fields if f not in data or data[f] is None]
+            if missing:
+                return jsonify({
+                    "error": "Missing required fields",
+                    "missing_fields": missing
+                }), 400
+            
+            try:
+                # Type conversions
+                age = int(data.get("age"))
+                weight = float(data.get("weight"))
+                height = float(data.get("height"))
+                weekly_budget = int(data.get("weekly_budget"))
+                
+                # Validate ranges
+                if age < 10 or age > 120:
+                    return jsonify({"error": "Age must be between 10 and 120"}), 400
+                if weight < 20 or weight > 300:
+                    return jsonify({"error": "Weight must be between 20 and 300 kg"}), 400
+                if height < 100 or height > 250:
+                    return jsonify({"error": "Height must be between 100 and 250 cm"}), 400
+                if weekly_budget < 100 or weekly_budget > 50000:
+                    return jsonify({"error": "Weekly budget must be between ₹100 and ₹50,000"}), 400
+                
+                # Valid diet types
+                valid_diet_types = ["veg", "eggetarian", "non-veg", "vegan", "jain", "satvik"]
+                if data.get("diet_type", "").lower() not in valid_diet_types:
+                    return jsonify({
+                        "error": f"Invalid diet type. Must be one of: {', '.join(valid_diet_types)}"
+                    }), 400
+                
+                # Valid activity levels
+                valid_activity_levels = ["sedentary", "light", "moderate", "active"]
+                if data.get("activity_level", "").lower() not in valid_activity_levels:
+                    return jsonify({
+                        "error": f"Invalid activity level. Must be one of: {', '.join(valid_activity_levels)}"
+                    }), 400
+                
+                # Check if profile exists to determine if UPDATE or INSERT
+                existing_profile = conn.execute(
+                    "SELECT id FROM profiles WHERE user_id=?", (user_id,)
+                ).fetchone()
+                is_update = existing_profile is not None
+                
+                # Calculate daily calories using Mifflin-St Jeor Equation
+                bmr = None
+                tdee = None
+                daily_calories = None
+                try:
+                    print(f"[PROFILE] Attempting to calculate calories...")
+                    logger.info(f"[PROFILE] About to call calculate_calories with age={age}, gender={data.get('gender')}, weight={weight}, height={height}, activity_level={data.get('activity_level')}, health_goal={data.get('health_goal')}")
+                    calorie_data = calculate_calories(
+                        age=age,
+                        gender=data.get("gender", "").strip().lower(),
+                        weight=weight,
+                        height=height,
+                        activity_level=data.get("activity_level", "").strip().lower(),
+                        health_goal=data.get("health_goal", "").strip()
+                    )
+                    bmr = calorie_data["bmr"]
+                    tdee = calorie_data["tdee"]
+                    daily_calories = calorie_data["daily_calories"]
+                    print(f"[PROFILE] ✅ Calculated calories: BMR={bmr}, TDEE={tdee}, Daily={daily_calories}")
+                    logger.info(f"[PROFILE] ✅ Calculated calories: BMR={bmr}, TDEE={tdee}, Daily={daily_calories}")
+                except ValueError as calc_err:
+                    print(f"[PROFILE] ❌ ValueError in calorie calc: {calc_err}")
+                    logger.warning(f"[PROFILE] Calorie calculation error: {calc_err}")
+                except Exception as calc_err:
+                    print(f"[PROFILE] ❌ Unexpected error in calorie calc: {type(calc_err).__name__}: {calc_err}")
+                    logger.error(f"[PROFILE] Unexpected calorie calculation error: {type(calc_err).__name__}: {calc_err}")
+                
+                # Insert or update profile (UPSERT using user_id as unique key)
+                conn.execute("""
+                    INSERT INTO profiles 
+                    (user_id, age, gender, weight, height, diet_type, state, cuisine, health_goal, weekly_budget, activity_level, bmr, tdee, daily_calories)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        age=excluded.age,
+                        gender=excluded.gender,
+                        weight=excluded.weight,
+                        height=excluded.height,
+                        diet_type=excluded.diet_type,
+                        state=excluded.state,
+                        cuisine=excluded.cuisine,
+                        health_goal=excluded.health_goal,
+                        weekly_budget=excluded.weekly_budget,
+                        activity_level=excluded.activity_level,
+                        bmr=excluded.bmr,
+                        tdee=excluded.tdee,
+                        daily_calories=excluded.daily_calories,
+                        updated_at=CURRENT_TIMESTAMP
+                """, (
+                    user_id,
+                    age,
+                    data.get("gender", "").strip(),
+                    weight,
+                    height,
+                    data.get("diet_type", "").strip().lower(),
+                    data.get("state", "").strip(),
+                    data.get("cuisine", "").strip(),
+                    data.get("health_goal", "").strip(),
+                    weekly_budget,
+                    data.get("activity_level", "").strip().lower(),
+                    bmr,
+                    tdee,
+                    daily_calories
+                ))
+                conn.commit()
+                
+                # Return updated profile
+                profile_row = conn.execute(
+                    "SELECT * FROM profiles WHERE user_id=?", (user_id,)
+                ).fetchone()
+                
+                # Log the returned data for debugging
+                logger.info(f"[PROFILE] Profile row - BMR: {profile_row['bmr']}, TDEE: {profile_row['tdee']}, Daily Cals: {profile_row['daily_calories']}")
+                # Log with action type (INSERT or UPDATE)
+                action = "UPDATED" if is_update else "CREATED"
+                logger.info("[PROFILE] %s profile for user_id=%s | age=%d | diet=%s | goal=%s | daily_calories=%.0f | foreign_key=user_id",
+                           action, user_id, age, data.get("diet_type"), data.get("health_goal"), 
+                           profile_row["daily_calories"] or 0)
+                
+                return jsonify({
+                    "status": "ok",
+                    "user_id": user_id,
+                    "profile": {
+                        "age": profile_row["age"],
+                        "gender": profile_row["gender"],
+                        "weight": profile_row["weight"],
+                        "height": profile_row["height"],
+                        "diet_type": profile_row["diet_type"],
+                        "state": profile_row["state"],
+                        "cuisine": profile_row["cuisine"],
+                        "health_goal": profile_row["health_goal"],
+                        "weekly_budget": profile_row["weekly_budget"],
+                        "activity_level": profile_row["activity_level"],
+                        "health_metrics": {
+                            "bmr": profile_row["bmr"],
+                            "tdee": profile_row["tdee"],
+                            "daily_calories": profile_row["daily_calories"]
+                        },
+                        "created_at": profile_row["created_at"],
+                        "updated_at": profile_row["updated_at"]
+                    },
+                    "profile_complete": True
+                }), 200
+                
+            except (ValueError, TypeError) as e:
+                logger.warning("Profile validation error: %s", e)
+                return jsonify({"error": f"Invalid data format: {str(e)}"}), 400
+            except Exception as e:
+                logger.error("Profile save error: %s", e)
+                return jsonify({"error": "Failed to save profile"}), 500
+        
+        # GET request — retrieve profile
+        else:
+            profile_row = conn.execute(
+                "SELECT * FROM profiles WHERE user_id=?", (user_id,)
+            ).fetchone()
+            
+            if not profile_row:
+                return jsonify({
+                    "user_id": user_id,
+                    "profile_complete": False,
+                    "message": "No profile data yet. Complete onboarding to create profile."
+                }), 200
+            
+            return jsonify({
+                "user_id": user_id,
+                "age": profile_row["age"],
+                "gender": profile_row["gender"],
+                "weight": profile_row["weight"],
+                "height": profile_row["height"],
+                "diet_type": profile_row["diet_type"],
+                "state": profile_row["state"],
+                "cuisine": profile_row["cuisine"],
+                "health_goal": profile_row["health_goal"],
+                "weekly_budget": profile_row["weekly_budget"],
+                "activity_level": profile_row["activity_level"],
+                "health_metrics": {
+                    "bmr": profile_row["bmr"],
+                    "tdee": profile_row["tdee"],
+                    "daily_calories": profile_row["daily_calories"]
+                },
+                "created_at": profile_row["created_at"],
+                "updated_at": profile_row["updated_at"],
+                "profile_complete": True
+            }), 200
+
+
+@bp.route("/preferences", methods=["GET", "POST"])
+def preferences():
+    """Persist dietary preferences per user (or globally for guests)."""
+    from app.services.history_service import _get_conn
+    user_id = _get_current_user_id()
+
+    with _get_conn() as conn:
+        # Ensure preferences table exists
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS preferences (
+                user_id   INTEGER PRIMARY KEY,
+                vegan     INTEGER DEFAULT 0,
+                no_sugar  INTEGER DEFAULT 0,
+                low_sodium INTEGER DEFAULT 0,
+                gluten_free INTEGER DEFAULT 0
+            )
+        """)
+        conn.commit()
+
+        if request.method == "POST":
+            data = request.get_json(silent=True) or {}
+            uid = user_id if user_id is not None else 0
+            conn.execute("""
+                INSERT INTO preferences (user_id, vegan, no_sugar, low_sodium, gluten_free)
+                VALUES (?,?,?,?,?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    vegan=excluded.vegan,
+                    no_sugar=excluded.no_sugar,
+                    low_sodium=excluded.low_sodium,
+                    gluten_free=excluded.gluten_free
+            """, (
+                uid,
+                1 if data.get("vegan") else 0,
+                1 if data.get("no_sugar") else 0,
+                1 if data.get("low_sodium") else 0,
+                1 if data.get("gluten_free") else 0,
+            ))
+            conn.commit()
+            return jsonify({"status": "updated"})
+
+        # GET
+        uid = user_id if user_id is not None else 0
+        row = conn.execute(
+            "SELECT * FROM preferences WHERE user_id=?", (uid,)
+        ).fetchone()
+        if not row:
+            return jsonify({"vegan": False, "no_sugar": False, "low_sodium": False, "gluten_free": False})
+        return jsonify({
+            "vegan": bool(row["vegan"]),
+            "no_sugar": bool(row["no_sugar"]),
+            "low_sodium": bool(row["low_sodium"]),
+            "gluten_free": bool(row["gluten_free"]),
+        })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Meal Planning with Gemini AI
+# ─────────────────────────────────────────────────────────────────────────────
+
+@bp.route("/api/meal-plan", methods=["GET"])
+def get_meal_plan():
+    """
+    Generate personalized meal plan using Gemini AI.
+    
+    Uses the authenticated user's profile data (age, gender, diet_type, state, 
+    cuisine, health_goal, activity_level, daily_calories, weekly_budget) to 
+    generate a customized meal plan via Gemini API.
+    
+    Response (HTTP 200):
+    {
+        "today_plan": {
+            "day": "Monday",
+            "meals": {
+                "breakfast": {"meal": "...", "portion": "...", "calories": 300},
+                "lunch": {"meal": "...", "portion": "...", "calories": 600},
+                "dinner": {"meal": "...", "portion": "...", "calories": 500},
+                "snacks": [{"meal": "...", "portion": "...", "calories": 150}]
+            },
+            "total_calories": 1550
+        },
+        "weekly_plan": [
+            {"day": "Monday", "meals": {...}, "total_calories": 1550},
+            ...7 days total...
+        ],
+        "grocery_list": [
+            {"item": "Rice", "quantity": "2kg", "estimated_cost": 100},
+            ...
+        ],
+        "total_estimated_cost": 2500
+    }
+    
+    Errors:
+    - 401 if not authenticated
+    - 404 if user profile not complete
+    - 500 if Gemini API call fails
+    """
+    from app.services.history_service import _get_conn
+    
+    user_id = _get_current_user_id()
+    if not user_id:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    logger.info(f"[MEAL_PLAN] Request from user_id={user_id}")
+    
+    with _get_conn() as conn:
+        # Fetch user profile
+        profile = conn.execute(
+            "SELECT * FROM profiles WHERE user_id=?", (user_id,)
+        ).fetchone()
+        
+        if not profile:
+            logger.warning(f"[MEAL_PLAN] Profile not found for user_id={user_id}")
+            return jsonify({
+                "error": "User profile not complete",
+                "message": "Please complete your profile before generating meal plans"
+            }), 404
+        
+        # Validate required fields
+        required_fields = ["age", "gender", "diet_type", "state", "cuisine", 
+                          "health_goal", "activity_level", "daily_calories", "weekly_budget"]
+        missing = [f for f in required_fields if not profile[f]]
+        
+        if missing:
+            logger.warning(f"[MEAL_PLAN] Missing fields for user_id={user_id}: {missing}")
+            return jsonify({
+                "error": "Incomplete profile",
+                "missing_fields": missing,
+                "message": "Some profile fields are missing. Please update your profile."
+            }), 404
+    
+    try:
+        # ── CHECK CACHE FIRST ─────────────────────────────────────────────
+        import hashlib
+        import json as json_lib
+        from datetime import datetime, timedelta
+        
+        # Create profile hash to detect profile changes
+        profile_signature = f"{profile['age']}{profile['gender']}{profile['diet_type']}{profile['state']}{profile['cuisine']}{profile['health_goal']}{profile['activity_level']}{profile['daily_calories']}{profile['weekly_budget']}"
+        profile_hash = hashlib.md5(profile_signature.encode()).hexdigest()
+        
+        with _get_conn() as conn:
+            cached = conn.execute(
+                "SELECT meal_plan_data, expires_at FROM meal_plans WHERE user_id=? AND profile_hash=?",
+                (user_id, profile_hash)
+            ).fetchone()
+            
+            if cached:
+                expires_at = datetime.fromisoformat(cached['expires_at'])
+                if datetime.now() < expires_at:
+                    remaining = int((expires_at - datetime.now()).total_seconds())
+                    logger.info(f"[MEAL_PLAN] ✅ CACHE HIT! Using cached meal plan (expires in {remaining}s)")
+                    return jsonify(json_lib.loads(cached['meal_plan_data'])), 200
+                else:
+                    logger.info(f"[MEAL_PLAN] Cache expired, regenerating...")
+                    conn.execute("DELETE FROM meal_plans WHERE user_id=?", (user_id,))
+                    conn.commit()
+            else:
+                logger.info(f"[MEAL_PLAN] Cache MISS, calling Gemini API...")
+        
+        # ── CALL GEMINI API (only if cache miss) ───────────────────────────
+        logger.info(f"[MEAL_PLAN] Initializing Gemini API...")
+        # Get or create meal planner service
+        meal_planner = get_meal_planner()
+        
+        logger.info(f"[MEAL_PLAN] Calling Gemini with: age={profile['age']}, "
+                   f"gender={profile['gender']}, diet={profile['diet_type']}, "
+                   f"state={profile['state']}, daily_cal={profile['daily_calories']}, "
+                   f"budget={profile['weekly_budget']}")
+        
+        # Generate meal plan
+        meal_plan = meal_planner.generate_meal_plan(
+            age=profile["age"],
+            gender=profile["gender"],
+            diet_type=profile["diet_type"],
+            state=profile["state"],
+            cuisine=profile["cuisine"],
+            health_goal=profile["health_goal"],
+            activity_level=profile["activity_level"],
+            daily_calories=profile["daily_calories"],
+            weekly_budget=profile["weekly_budget"]
+        )
+        
+        logger.info(f"[MEAL_PLAN] ✅ Meal plan generated successfully")
+        
+        # ── CACHE THE RESULT FOR 24 HOURS ──────────────────────────────────
+        expires_at = (datetime.now() + timedelta(hours=24)).isoformat()
+        
+        with _get_conn() as conn:
+            conn.execute(
+                """INSERT OR REPLACE INTO meal_plans 
+                   (user_id, meal_plan_data, generated_at, expires_at, profile_hash)
+                   VALUES (?, ?, datetime('now'), ?, ?)""",
+                (user_id, json_lib.dumps(meal_plan), expires_at, profile_hash)
+            )
+            conn.commit()
+            logger.info(f"[MEAL_PLAN] ✅ Cached for 24 hours (next refresh available tomorrow)")
+        
+        return jsonify(meal_plan), 200
+        
+    except ValueError as e:
+        logger.error(f"[MEAL_PLAN] ❌ Validation error: {e}")
+        return jsonify({
+            "error": "Invalid meal plan response",
+            "details": str(e)
+        }), 500
+    
+    except Exception as e:
+        logger.error(f"[MEAL_PLAN] ❌ Error: {type(e).__name__}: {e}")
+        return jsonify({
+            "error": "Failed to generate meal plan",
+            "details": str(e),
+            "type": type(e).__name__
+        }), 500
+
+
+@bp.route("/api/chat", methods=["POST"])
+@token_required
+def chat(current_user):
+    """
+    Chat endpoint for food and nutrition queries.
+    
+    POST /api/chat
+    Body: {
+        "message": "user's query about food/nutrition"
+    }
+    
+    Returns: {
+        "response": "chatbot's answer"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data or "message" not in data:
+            return jsonify({"error": "Missing 'message' field"}), 400
+        
+        user_message = data["message"].strip()
+        if not user_message:
+            return jsonify({"error": "Message cannot be empty"}), 400
+        
+        # Get chatbot instance and send message
+        chatbot = get_chatbot()
+        response = chatbot.chat(user_message)
+        
+        if response is None:
+            return jsonify({
+                "error": "Chatbot unavailable",
+                "details": "Groq API not configured or failed"
+            }), 503
+        
+        return jsonify({
+            "response": response,
+            "user_id": current_user["id"]
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"[CHAT] Error: {type(e).__name__}: {e}")
+        return jsonify({
+            "error": "Chat request failed",
+            "details": str(e)
+        }), 500
+
+
+@bp.route("/api/chat/clear", methods=["POST"])
+@token_required
+def clear_chat_history(current_user):
+    """Clear conversation history for the chatbot."""
+    try:
+        chatbot = get_chatbot()
+        chatbot.clear_history()
+        return jsonify({"message": "Chat history cleared"}), 200
+    except Exception as e:
+        logger.error(f"[CHAT] Error clearing history: {e}")
+        return jsonify({"error": "Failed to clear history"}), 500
+
+
+@bp.route("/<path:path>")
+def static_proxy(path):
+    # Don't serve /api/* paths as static files
+    if path.startswith("api/"):
+        return jsonify({"error": "API endpoint not found"}), 404
+    if os.path.exists(os.path.join("static", path)):
+        return send_from_directory("static", path)
+    return jsonify({"error": "File not found"}), 404

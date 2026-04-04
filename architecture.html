@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Food Scanner — Architecture Data Flow</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; padding: 32px 24px; }
+  h1 { text-align: center; font-size: 1.5rem; font-weight: 700; color: #f8fafc; margin-bottom: 6px; letter-spacing: .5px; }
+  .subtitle { text-align: center; font-size: .8rem; color: #64748b; margin-bottom: 36px; }
+
+  /* ── lane labels ── */
+  .lanes { display: flex; gap: 0; margin-bottom: 0; }
+  .lane-label {
+    flex: 1; text-align: center; font-size: .65rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1px; padding: 6px 4px;
+    border-radius: 6px 6px 0 0;
+  }
+  .lane-fe  { background: #1e293b; color: #7dd3fc; border: 1px solid #334155; }
+  .lane-api { background: #1a1f2e; color: #a78bfa; border: 1px solid #334155; }
+  .lane-svc { background: #1a2318; color: #86efac; border: 1px solid #334155; }
+  .lane-db  { background: #1f1a10; color: #fcd34d; border: 1px solid #334155; }
+
+  /* ── main diagram area ── */
+  .diagram { position: relative; width: 100%; overflow-x: auto; }
+  svg { display: block; }
+
+  /* ── node styles ── */
+  .node rect { rx: 8; ry: 8; stroke-width: 1.5; }
+  .node text { font-size: 11px; font-weight: 600; dominant-baseline: middle; text-anchor: middle; }
+  .node .sub { font-size: 9px; font-weight: 400; fill: #94a3b8; }
+
+  /* colour themes */
+  .fe    rect { fill: #1e3a5f; stroke: #3b82f6; }
+  .fe    text { fill: #bfdbfe; }
+  .api   rect { fill: #2d1b69; stroke: #8b5cf6; }
+  .api   text { fill: #ddd6fe; }
+  .svc   rect { fill: #14532d; stroke: #22c55e; }
+  .svc   text { fill: #bbf7d0; }
+  .db    rect { fill: #451a03; stroke: #f59e0b; }
+  .db    text { fill: #fde68a; }
+  .ext   rect { fill: #1c1917; stroke: #78716c; }
+  .ext   text { fill: #d6d3d1; }
+  .warn  rect { fill: #450a0a; stroke: #ef4444; stroke-dasharray: 4 2; }
+  .warn  text { fill: #fca5a5; }
+
+  /* arrows */
+  .arrow { fill: none; stroke-width: 1.8; marker-end: url(#arrowhead); }
+  .arr-blue   { stroke: #3b82f6; }
+  .arr-purple { stroke: #8b5cf6; }
+  .arr-green  { stroke: #22c55e; }
+  .arr-yellow { stroke: #f59e0b; }
+  .arr-gray   { stroke: #64748b; stroke-dasharray: 5 3; }
+  .arr-red    { stroke: #ef4444; stroke-dasharray: 5 3; }
+
+  .edge-label { font-size: 9px; fill: #94a3b8; font-style: italic; }
+
+  /* legend */
+  .legend { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; margin-top: 28px; }
+  .leg-item { display: flex; align-items: center; gap: 6px; font-size: .75rem; color: #94a3b8; }
+  .leg-box { width: 14px; height: 14px; border-radius: 3px; border: 1.5px solid; }
+</style>
+</head>
+<body>
+<h1>Food Scanner — Architecture &amp; Data Flow</h1>
+<p class="subtitle">Horizontal flow · left = user input · right = response · two parallel scan paths</p>
+
+<div class="lanes">
+  <div class="lane-label lane-fe">Frontend (Next.js)</div>
+  <div class="lane-label lane-api">Flask API / routes.py</div>
+  <div class="lane-label lane-svc">Backend Services</div>
+  <div class="lane-label lane-db">Data Layer</div>
+</div>
+
+<div class="diagram">
+<svg id="svg" xmlns="http://www.w3.org/2000/svg" width="1480" height="820">
+  <defs>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#64748b" />
+    </marker>
+    <marker id="arr-blue"   markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#3b82f6"/></marker>
+    <marker id="arr-purple" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#8b5cf6"/></marker>
+    <marker id="arr-green"  markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#22c55e"/></marker>
+    <marker id="arr-yellow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#f59e0b"/></marker>
+    <marker id="arr-gray"   markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#64748b"/></marker>
+    <marker id="arr-red"    markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#ef4444"/></marker>
+  </defs>
+</svg>
+</div>
+
+<div class="legend">
+  <div class="leg-item"><div class="leg-box" style="background:#1e3a5f;border-color:#3b82f6"></div>Frontend</div>
+  <div class="leg-item"><div class="leg-box" style="background:#2d1b69;border-color:#8b5cf6"></div>API / Routes</div>
+  <div class="leg-item"><div class="leg-box" style="background:#14532d;border-color:#22c55e"></div>Backend Service</div>
+  <div class="leg-item"><div class="leg-box" style="background:#451a03;border-color:#f59e0b"></div>Database / Cache</div>
+  <div class="leg-item"><div class="leg-box" style="background:#1c1917;border-color:#78716c"></div>External API</div>
+  <div class="leg-item"><div class="leg-box" style="background:#450a0a;border-color:#ef4444;border-style:dashed"></div>Disabled / Optional</div>
+</div>
+
+<script>
+const svg = document.getElementById('svg');
+const NS = 'http://www.w3.org/2000/svg';
+
+function g(cls) {
+  const el = document.createElementNS(NS, 'g');
+  el.setAttribute('class', cls);
+  return el;
+}
+function rect(x, y, w, h) {
+  const el = document.createElementNS(NS, 'rect');
+  el.setAttribute('x', x); el.setAttribute('y', y);
+  el.setAttribute('width', w); el.setAttribute('height', h);
+  el.setAttribute('rx', 8); el.setAttribute('ry', 8);
+  return el;
+}
+function text(x, y, label, cls='') {
+  const el = document.createElementNS(NS, 'text');
+  el.setAttribute('x', x); el.setAttribute('y', y);
+  if (cls) el.setAttribute('class', cls);
+  el.setAttribute('dominant-baseline', 'middle');
+  el.setAttribute('text-anchor', 'middle');
+  el.setAttribute('font-size', '11');
+  el.setAttribute('font-weight', '600');
+  el.textContent = label;
+  return el;
+}
+function subtext(x, y, label) {
+  const el = document.createElementNS(NS, 'text');
+  el.setAttribute('x', x); el.setAttribute('y', y);
+  el.setAttribute('dominant-baseline', 'middle');
+  el.setAttribute('text-anchor', 'middle');
+  el.setAttribute('font-size', '9');
+  el.setAttribute('fill', '#94a3b8');
+  el.textContent = label;
+  return el;
+}
+
+// node(x, y, w, h, theme, title, subtitle?)
+function node(x, y, w, h, theme, title, sub) {
+  const grp = g('node ' + theme);
+  grp.appendChild(rect(x, y, w, h));
+  const ty = sub ? y + h/2 - 7 : y + h/2;
+  const t = text(x + w/2, ty, title);
+  t.setAttribute('fill', theme === 'fe' ? '#bfdbfe' : theme === 'api' ? '#ddd6fe' : theme === 'svc' ? '#bbf7d0' : theme === 'db' ? '#fde68a' : theme === 'warn' ? '#fca5a5' : '#d6d3d1');
+  grp.appendChild(t);
+  if (sub) grp.appendChild(subtext(x + w/2, y + h/2 + 8, sub));
+  svg.appendChild(grp);
+  return { x, y, w, h, cx: x + w/2, cy: y + h/2, right: x + w, bottom: y + h };
+}
+
+// arrow(x1,y1,x2,y2, color, label?)
+function arrow(x1, y1, x2, y2, color, label) {
+  const path = document.createElementNS(NS, 'path');
+  const mx = (x1 + x2) / 2;
+  path.setAttribute('d', `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`);
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', color);
+  path.setAttribute('stroke-width', '1.8');
+  path.setAttribute('marker-end', `url(#arr-${color === '#3b82f6' ? 'blue' : color === '#8b5cf6' ? 'purple' : color === '#22c55e' ? 'green' : color === '#f59e0b' ? 'yellow' : color === '#ef4444' ? 'red' : 'gray'})`);
+  svg.appendChild(path);
+  if (label) {
+    const lx = mx; const ly = (y1 + y2) / 2 - 6;
+    const lt = document.createElementNS(NS, 'text');
+    lt.setAttribute('x', lx); lt.setAttribute('y', ly);
+    lt.setAttribute('text-anchor', 'middle'); lt.setAttribute('font-size', '9');
+    lt.setAttribute('fill', '#64748b'); lt.setAttribute('font-style', 'italic');
+    lt.textContent = label;
+    svg.appendChild(lt);
+  }
+}
+
+function line(x1, y1, x2, y2, color, dash) {
+  const el = document.createElementNS(NS, 'line');
+  el.setAttribute('x1', x1); el.setAttribute('y1', y1);
+  el.setAttribute('x2', x2); el.setAttribute('y2', y2);
+  el.setAttribute('stroke', color); el.setAttribute('stroke-width', '1.8');
+  if (dash) el.setAttribute('stroke-dasharray', dash);
+  el.setAttribute('marker-end', `url(#arr-${color === '#3b82f6' ? 'blue' : color === '#8b5cf6' ? 'purple' : color === '#22c55e' ? 'green' : color === '#f59e0b' ? 'yellow' : color === '#ef4444' ? 'red' : 'gray'})`);
+  svg.appendChild(el);
+}
+
+function label(x, y, txt, color) {
+  const el = document.createElementNS(NS, 'text');
+  el.setAttribute('x', x); el.setAttribute('y', y);
+  el.setAttribute('text-anchor', 'middle'); el.setAttribute('font-size', '9');
+  el.setAttribute('fill', color || '#64748b'); el.setAttribute('font-style', 'italic');
+  el.textContent = txt;
+  svg.appendChild(el);
+}
+
+function divider(x, color) {
+  const el = document.createElementNS(NS, 'line');
+  el.setAttribute('x1', x); el.setAttribute('y1', 10);
+  el.setAttribute('x2', x); el.setAttribute('y2', 810);
+  el.setAttribute('stroke', color || '#1e293b'); el.setAttribute('stroke-width', '1');
+  el.setAttribute('stroke-dasharray', '4 4');
+  svg.appendChild(el);
+}
+
+function sectionLabel(x, y, txt, color) {
+  const el = document.createElementNS(NS, 'text');
+  el.setAttribute('x', x); el.setAttribute('y', y);
+  el.setAttribute('text-anchor', 'middle'); el.setAttribute('font-size', '10');
+  el.setAttribute('fill', color || '#475569'); el.setAttribute('font-weight', '700');
+  el.setAttribute('letter-spacing', '1');
+  el.textContent = txt;
+  svg.appendChild(el);
+}
+
+// ── lane dividers ──────────────────────────────────────────────────────────
+divider(370, '#1e293b');
+divider(740, '#1e293b');
+divider(1110, '#1e293b');
+
+// ══════════════════════════════════════════════════════════════════════════
+// PATH A — BARCODE SCAN (top half, y: 40–420)
+// ══════════════════════════════════════════════════════════════════════════
+sectionLabel(740, 28, '── PATH A: BARCODE SCAN (Primary) ──', '#3b82f6');
+
+// FE
+const user    = node(20,  50, 130, 50, 'fe', '📱 User', 'Camera / File Upload');
+const scanner = node(20, 140, 130, 50, 'fe', 'Scanner UI', 'page.js');
+const reveal  = node(20, 240, 130, 50, 'fe', 'ScoreReveal', 'Animated overlay');
+const history = node(20, 330, 130, 50, 'fe', 'HistoryFeed', 'TrendsView');
+
+// API
+const scanEp  = node(400, 80,  140, 50, 'api', 'POST /api/scan', 'routes.py');
+const decode  = node(400, 160, 140, 40, 'api', 'Base64 Decode', 'cv2.imdecode');
+const histEp  = node(400, 330, 140, 50, 'api', 'GET /history', 'GET /analytics');
+
+// Services
+const barcSvc = node(770, 80,  150, 50, 'svc', 'barcode_service', 'pyzbar + OpenCV');
+const nutSvc  = node(770, 160, 150, 50, 'svc', 'nutrition_db', 'GTIN lookup');
+const addSvc  = node(770, 250, 150, 50, 'svc', 'additives_expert', 'FSSAI/INS regex');
+const scorSvc = node(770, 340, 150, 50, 'svc', 'health_scoring', 'NutriScore heuristic');
+const xaiSvc  = node(770, 430, 150, 50, 'svc', 'xai_service', 'Rule-based SHAP');
+const histSvc = node(770, 520, 150, 50, 'svc', 'history_service', 'SQLite save');
+
+// DB
+const gtinDb  = node(1140, 80,  150, 50, 'db', 'gtin_cache.db', 'SQLite · 30d TTL');
+const mainDb  = node(1140, 160, 150, 50, 'db', 'food_scanner.db', 'nutrition_cache');
+const offApi  = node(1140, 250, 150, 50, 'ext', 'Open Food Facts', 'REST API · fallback');
+const addDb   = node(1140, 340, 150, 50, 'db', 'additives_db.json', 'FSSAI/INS entries');
+const scanDb  = node(1140, 430, 150, 50, 'db', 'food_scanner.db', 'scan_results table');
+const prefDb  = node(1140, 520, 150, 50, 'db', 'preferences', 'dietary toggles');
+
+// ── FE → API ──
+line(user.right, user.cy, scanner.x, scanner.cy, '#3b82f6');
+line(scanner.right, scanner.cy, scanEp.x, scanEp.cy, '#3b82f6');
+label(285, 100, 'base64 image', '#3b82f6');
+
+// ── API internal ──
+line(scanEp.x + 70, scanEp.bottom, decode.x + 70, decode.y, '#8b5cf6');
+
+// ── API → Services ──
+line(decode.right, decode.cy, barcSvc.x, barcSvc.cy, '#8b5cf6');
+label(610, 175, 'np.ndarray', '#8b5cf6');
+
+line(scanEp.right, scanEp.cy + 10, nutSvc.x, nutSvc.cy, '#8b5cf6');
+label(610, 148, 'GTIN string', '#8b5cf6');
+
+line(nutSvc.x + 75, nutSvc.bottom, addSvc.x + 75, addSvc.y, '#22c55e');
+line(addSvc.x + 75, addSvc.bottom, scorSvc.x + 75, scorSvc.y, '#22c55e');
+line(scorSvc.x + 75, scorSvc.bottom, xaiSvc.x + 75, xaiSvc.y, '#22c55e');
+line(xaiSvc.x + 75, xaiSvc.bottom, histSvc.x + 75, histSvc.y, '#22c55e');
+
+// ── Services → DB ──
+line(barcSvc.right, barcSvc.cy, gtinDb.x, gtinDb.cy, '#f59e0b');
+line(nutSvc.right, nutSvc.cy, mainDb.x, mainDb.cy, '#f59e0b');
+line(nutSvc.right, nutSvc.cy + 12, offApi.x, offApi.cy, '#78716c');
+label(1060, 218, 'miss → fetch', '#78716c');
+line(addSvc.right, addSvc.cy, addDb.x, addDb.cy, '#f59e0b');
+line(histSvc.right, histSvc.cy, scanDb.x, scanDb.cy, '#f59e0b');
+line(histSvc.right, histSvc.cy + 12, prefDb.x, prefDb.cy, '#f59e0b');
+
+// ── Response back to FE ──
+arrow(scanEp.x, scanEp.cy - 10, reveal.right, reveal.cy, '#3b82f6', 'JSON response');
+line(histEp.x, histEp.cy, history.right, history.cy, '#3b82f6');
+line(histSvc.x, histSvc.cy, histEp.right, histEp.cy, '#22c55e');
+
+// ══════════════════════════════════════════════════════════════════════════
+// PATH B — LABEL / OCR SCAN (bottom half, y: 600–780)
+// ══════════════════════════════════════════════════════════════════════════
+sectionLabel(740, 618, '── PATH B: LABEL / OCR SCAN (Secondary) ──', '#a78bfa');
+
+const labelUi  = node(20,  635, 130, 50, 'fe',   'Label Scanner', 'page.js multi-step');
+const labelEp  = node(400, 635, 140, 50, 'api',  'POST /api/scan-label', 'routes.py');
+const ocrSvc   = node(770, 635, 150, 50, 'svc',  'ocr_pipeline', 'EasyOCR + preprocess');
+const nerSvc   = node(770, 710, 150, 50, 'svc',  'ner_service', 'Regex NER');
+const ragSvc   = node(1140, 635, 150, 50, 'warn', 'rag_analyzer', 'RAG_ENABLED=false');
+const legacyEp = node(400, 720, 140, 40, 'warn', 'POST /analyze', 'legacy · debug only');
+
+line(labelUi.right, labelUi.cy, labelEp.x, labelEp.cy, '#8b5cf6');
+label(285, 650, 'base64 image', '#8b5cf6');
+line(labelEp.right, labelEp.cy, ocrSvc.x, ocrSvc.cy, '#8b5cf6');
+line(ocrSvc.x + 75, ocrSvc.bottom, nerSvc.x + 75, nerSvc.y, '#22c55e');
+line(ocrSvc.right, ocrSvc.cy, ragSvc.x, ragSvc.cy, '#ef4444');
+label(1060, 628, 'disabled', '#ef4444');
+
+// NER feeds back into shared scoring pipeline (dotted)
+arrow(nerSvc.right, nerSvc.cy, scorSvc.right + 10, scorSvc.cy, '#64748b', 'features dict');
+
+// legacy
+line(legacyEp.right, legacyEp.cy, ocrSvc.x, ocrSvc.bottom - 10, '#64748b');
+
+// ══════════════════════════════════════════════════════════════════════════
+// TRAINING PIPELINE (far right annotation)
+// ══════════════════════════════════════════════════════════════════════════
+const trainNode = node(1310, 300, 140, 50, 'warn', 'fetch_and_train.py', 'XGBoost · offline');
+const modelFile = node(1310, 380, 140, 40, 'db',   'health_ensemble.xgb', '⚠ MISSING');
+line(trainNode.x + 70, trainNode.bottom, modelFile.x + 70, modelFile.y, '#ef4444');
+label(1380, 360, 'generates', '#ef4444');
+
+// ── auth endpoints ──
+const authEp = node(400, 430, 140, 50, 'api', 'POST /auth/*', 'JWT · PBKDF2');
+const prefEp = node(400, 510, 140, 50, 'api', 'GET/POST /prefs', 'dietary toggles');
+const transEp = node(400, 590, 140, 40, 'api', 'POST /api/translate', 'deep-translator');
+line(authEp.right, authEp.cy, scanDb.x, scanDb.cy - 20, '#f59e0b');
+line(prefEp.right, prefEp.cy, prefDb.x, prefDb.cy, '#f59e0b');
+
+</script>
+</body>
+</html>
