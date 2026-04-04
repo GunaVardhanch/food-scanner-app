@@ -4,7 +4,7 @@ WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm install
 COPY frontend/ ./
-# Next.js export produces an 'out' directory
+# Next.js build produces .next directory
 RUN npm run build
 
 # --- Stage 2: Build Backend & Serve ---
