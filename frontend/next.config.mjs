@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-    // Removed 'output: export' to use standard Next.js server mode with npm run dev
-    // Static export is only needed for static hosting (Vercel, Netlify static sites)
+    // Enable static export for Docker deployment with Flask backend
+    output: 'export',
     images: {
         unoptimized: true,
     },
