@@ -1,0 +1,11 @@
+.vercel
+venv/
+*.db
+__pycache__/
+*.pyc
+.pytest_cache/
+yolov8n.pt
+ocr_model_v1.h5
+easyocr_models/
+food_scanner.db
+__pycache__
